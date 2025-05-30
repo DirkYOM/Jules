@@ -2,6 +2,19 @@
 
 # Test script for the SSD Flashing and Partition Extension Utility
 
+# ==============================================================================
+# IMPORTANT NOTE ON GUI TESTING:
+# The main application script 'flash_and_extend_app.sh' now uses zenity for
+# its primary user interface (file selection, device selection, confirmations).
+# These GUI interactions are NOT automatically tested by this script.
+# Manual testing is required to verify the GUI functionality and workflow of
+# 'flash_and_extend_app.sh'.
+#
+# This script primarily tests the underlying utility scripts ('flash_image.sh',
+# 'extend_partition.sh') and command-line argument handling where applicable.
+# It also includes a test for the 'zenity' prerequisite in 'flash_and_extend_app.sh'.
+# ==============================================================================
+
 # Setup - Ensure helper scripts are executable
 chmod +x ./flash_image.sh ./extend_partition.sh ./flash_and_extend_app.sh
 
@@ -62,35 +75,52 @@ check_test() {
 
 # --- Test flash_and_extend_app.sh ---
 echo ""
-echo "--- Testing flash_and_extend_app.sh ---"
+echo "--- Testing flash_and_extend_app.sh (Limited due to GUI) ---"
 
-# Test Case 1: No input confirmation
-echo "Test Case 1.1: flash_and_extend_app.sh - User answers 'no' to final confirmation"
-OUTPUT=$(echo -e "${DUMMY_IMAGE}\n/dev/null\nno" | ./flash_and_extend_app.sh 2>&1)
-EXIT_CODE=$?
-check_test "flash_and_extend_app.sh - Final confirmation 'no'" 1 "${EXIT_CODE}" "Aborting operation as per user request." "${OUTPUT}"
-if ! echo "${OUTPUT}" | grep -q "Stage 1: Flashing image"; then
-  echo "Test: flash_and_extend_app.sh - Final confirmation 'no' - Did not attempt flashing ... PASS"
-else
-  echo "Test: flash_and_extend_app.sh - Final confirmation 'no' - Did not attempt flashing ... FAIL"
-  echo "${OUTPUT}"
-fi
+# Test Case 1.1: flash_and_extend_app.sh - Zenity prerequisite check
+echo "Test Case 1.1: flash_and_extend_app.sh - Zenity missing (simulated)"
+PATH_BACKUP_ZENITY=$PATH
+export PATH="/tmp/nonexistent_bin_for_zenity_test:$PATH"
+OUTPUT_ZENITY_MISSING=$(./flash_and_extend_app.sh 2>&1)
+EXIT_CODE_ZENITY_MISSING=$?
+export PATH=$PATH_BACKUP_ZENITY
+check_test "flash_and_extend_app.sh - Zenity missing" 1 "${EXIT_CODE_ZENITY_MISSING}" "Error: 'zenity' command not found" "${OUTPUT_ZENITY_MISSING}"
 
-# Test Case 1.2: flash_and_extend_app.sh - Empty image path
-echo "Test Case 1.2: flash_and_extend_app.sh - Empty image path"
-OUTPUT=$(echo -e "\n/dev/null\nno" | ./flash_and_extend_app.sh 2>&1)
-EXIT_CODE=$?
-check_test "flash_and_extend_app.sh - Empty image path" 1 "${EXIT_CODE}" "Image path cannot be empty" "${OUTPUT}"
+# NOTE: The following original test cases for flash_and_extend_app.sh relied on text-based input via 'read',
+# which is no longer how the script works (it uses zenity GUI dialogs).
+# These tests are commented out as they are not applicable in the same way.
+# Manual testing of the GUI workflow is required.
 
-# Test Case 1.3: flash_and_extend_app.sh - Empty target device
-echo "Test Case 1.3: flash_and_extend_app.sh - Empty target device"
-OUTPUT=$(echo -e "${DUMMY_IMAGE}\n\nno" | ./flash_and_extend_app.sh 2>&1)
-EXIT_CODE=$?
-check_test "flash_and_extend_app.sh - Empty target device" 1 "${EXIT_CODE}" "Target device cannot be empty" "${OUTPUT}"
+# # Test Case: No input confirmation (Original)
+# echo "Test Case: flash_and_extend_app.sh - User answers 'no' to final confirmation (Original - Inapplicable)"
+# OUTPUT=$(echo -e "${DUMMY_IMAGE}\n/dev/null\nno" | ./flash_and_extend_app.sh 2>&1)
+# EXIT_CODE=$?
+# check_test "flash_and_extend_app.sh - Final confirmation 'no' (Original)" 1 "${EXIT_CODE}" "Aborting operation as per user request." "${OUTPUT}"
+# if ! echo "${OUTPUT}" | grep -q "Stage 1: Flashing image"; then
+#   echo "Test: flash_and_extend_app.sh - Final confirmation 'no' - Did not attempt flashing (Original) ... PASS"
+# else
+#   echo "Test: flash_and_extend_app.sh - Final confirmation 'no' - Did not attempt flashing (Original) ... FAIL"
+#   echo "${OUTPUT}"
+# fi
+
+# # Test Case: Empty image path (Original)
+# echo "Test Case: flash_and_extend_app.sh - Empty image path (Original - Inapplicable)"
+# OUTPUT=$(echo -e "\n/dev/null\nno" | ./flash_and_extend_app.sh 2>&1)
+# EXIT_CODE=$?
+# check_test "flash_and_extend_app.sh - Empty image path (Original)" 1 "${EXIT_CODE}" "Image path cannot be empty" "${OUTPUT}"
+
+# # Test Case: Empty target device (Original)
+# echo "Test Case: flash_and_extend_app.sh - Empty target device (Original - Inapplicable)"
+# OUTPUT=$(echo -e "${DUMMY_IMAGE}\n\nno" | ./flash_and_extend_app.sh 2>&1)
+# EXIT_CODE=$?
+# check_test "flash_and_extend_app.sh - Empty target device (Original)" 1 "${EXIT_CODE}" "Target device cannot be empty" "${OUTPUT}"
 
 
-# Test Case 3: flash_image.sh prerequisite check (dd missing)
-echo "Test Case 1.4: flash_and_extend_app.sh flow - dd missing (simulated)"
+# The following tests for underlying scripts are still valid as they are called with arguments
+# by flash_and_extend_app.sh after GUI interactions.
+
+# Test Case 1.2 (was 1.4): flash_image.sh prerequisite check (dd missing)
+echo "Test Case 1.2: flash_image.sh (as called by app) - dd missing (simulated)"
 PATH_BACKUP_DD=$PATH
 export PATH="/tmp/nonexistent_bin_for_dd_test:$PATH" # Prepend a non-existent dir
 # Simulate user saying yes to flash_and_extend_app.sh, then flash_image.sh fails on dd check
@@ -101,8 +131,8 @@ EXIT_CODE_DD_MISSING=$?
 export PATH=$PATH_BACKUP_DD # Restore PATH
 check_test "flash_image.sh - dd missing" 1 "${EXIT_CODE_DD_MISSING}" "Error: 'dd' command not found" "${OUTPUT_DD_MISSING}"
 
-# Test Case 4: extend_partition.sh prerequisite check (parted missing)
-echo "Test Case 1.5: flash_and_extend_app.sh flow - parted missing (simulated)"
+# Test Case 1.3 (was 1.5): extend_partition.sh prerequisite check (parted missing)
+echo "Test Case 1.3: extend_partition.sh (as called by app) - parted missing (simulated)"
 PATH_BACKUP_PARTED=$PATH
 export PATH="/tmp/nonexistent_bin_for_parted_test:$PATH" # Prepend a non-existent dir
 # Simulate call to extend_partition.sh
@@ -155,9 +185,8 @@ echo "================================================="
 echo "Test Suite Finished"
 echo "================================================="
 
-# Note: Test Case 2 for flash_and_extend_app.sh (missing image path via empty 'read' input)
-# is difficult to automate reliably in bash without tools like 'expect'.
-# Current script logic for flash_and_extend_app.sh handles empty input from 'read' by exiting.
-# This was tested manually and added as Test Case 1.2 and 1.3.
+# Note: Original Test Case 2 for flash_and_extend_app.sh (missing image path via empty 'read' input)
+# is now inapplicable due to Zenity handling file selection. Zenity itself prevents empty selection
+# or selection of non-existent files if configured correctly (which it is in the main script).
 
 exit 0

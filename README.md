@@ -10,13 +10,18 @@ It is designed to be run on Ubuntu-like systems.
 
 ## Prerequisites
 
-*   **Command-line Utilities:**
+*   **Command-line Utilities & GUI:**
     *   `bash`: The scripts are written in bash.
     *   `dd`: Used for the low-level disk write operation during image flashing.
     *   `parted`: Used for partition table manipulation (viewing and resizing).
-    *   These utilities are typically pre-installed on most Ubuntu and Debian-based systems. If not, they can be installed using `sudo apt-get install coreutils parted`.
+    *   `zenity`: Used to provide a graphical user interface for file and device selection, and for confirmations.
+    *   These utilities (`dd`, `parted`) are typically pre-installed on most Ubuntu and Debian-based systems. `zenity` might also be pre-installed on desktop editions.
+    *   If any are missing, they can be installed, for example on Ubuntu/Debian:
+        ```bash
+        sudo apt update && sudo apt install coreutils parted zenity
+        ```
 *   **Root Privileges:**
-    *   Accessing raw disk devices (like `/dev/sda` or `/dev/nvme0n1`) and modifying partition tables requires root privileges. Therefore, the main script **must** be run with `sudo`.
+    *   Accessing raw disk devices (like `/dev/sda` or `/dev/nvme0n1`), modifying partition tables, and often running `dd` effectively requires root privileges. Therefore, the main script **must** be run with `sudo`.
 
 ## Scripts
 
@@ -45,22 +50,30 @@ The utility consists of the following scripts:
     (The tool already does this for each script upon creation).
 
 2.  **Run the main application script:**
-    Open a terminal and navigate to the directory containing the scripts. Run the main application script with `sudo`:
+    Open a terminal and navigate to the directory containing the scripts. Run the main application script with `sudo` from a graphical environment (as it uses `zenity`):
     ```bash
     sudo ./flash_and_extend_app.sh
     ```
 
-3.  **Follow the prompts:**
-    *   The script will first ask for the **full path to the raw image file** you want to flash (e.g., `/home/user/Downloads/ubuntu-server.img`).
-    *   Next, it will ask for the **target SSD device** (e.g., `/dev/sda`, `/dev/sdb`, `/dev/nvme0n1`). **Be extremely careful when specifying this device.**
-    *   The script will display your inputs and ask for a final confirmation before any operations begin.
-    *   The underlying `flash_image.sh` and `extend_partition.sh` scripts will also ask for their own specific confirmations before performing critical operations. You must type `YES` (all caps) to proceed at those stages.
+3.  **Follow the GUI prompts:**
+    *   A welcome message will be displayed.
+    *   **Image File Selection:** A file dialog will appear, allowing you to browse and select the raw image file (e.g., `/home/user/Downloads/ubuntu-server.img`).
+    *   **Target Device Selection:** A dialog will list available block devices.
+        *   It will display the device path (e.g., `/dev/sda`), size, and model.
+        *   **Safety Feature:** The script attempts to identify and disable selection of your current operating system drive and the drive from which the image is being read (if it's a distinct removable device).
+        *   **Be extremely careful when selecting the target device from this list.**
+    *   **Final Confirmation:** A graphical confirmation dialog will summarize the selected image and target device, and will prominently warn you about data erasure. You must explicitly agree to proceed.
+    *   The underlying scripts (`flash_image.sh` and `extend_partition.sh`) still have their own final text-based "Type YES to proceed" confirmations in the terminal as an additional safety layer for the critical `dd` and `parted` commands.
 
 ## WARNINGS
 
-*   **EXTREME RISK OF DATA LOSS:** Writing an image to a device with `dd` is a destructive operation. **ALL DATA on the selected `TARGET_DEVICE` will be PERMANENTLY ERASED AND OVERWRITTEN** without further warning beyond the script's confirmations.
-*   **SELECT THE CORRECT TARGET DEVICE:** Double-check, triple-check, and then check again that you have specified the correct target device. If you choose the wrong device (e.g., your system drive or a backup drive), you will lose all data on it. Use commands like `lsblk` or `sudo fdisk -l` to list available block devices and verify their names and sizes before running the script.
-*   **BACKUP YOUR DATA:** Before using this utility on any device that contains important data, ensure you have a complete and verified backup.
+*   **EXTREME RISK OF DATA LOSS:** Writing an image to a device with `dd` is a destructive operation. **ALL DATA on the selected target device will be PERMANENTLY ERASED AND OVERWRITTEN.**
+*   **SELECT THE CORRECT TARGET DEVICE:**
+    *   While the GUI attempts to prevent you from selecting your OS drive or the image's source drive (if on removable media), these checks might not be foolproof in all system configurations.
+    *   **You are ultimately responsible for verifying the correct target device.** Double-check, triple-check, and then check again.
+    *   Use system tools like `lsblk -f`, `gparted`, or `Disks` (on GNOME) to be absolutely certain about device names and their contents before proceeding.
+    *   Choosing the wrong device can lead to complete data loss on that device.
+*   **BACKUP YOUR DATA:** Before using this utility on any device, ensure you have a complete and verified backup of any important data on it and on other connected devices.
 *   **PARTITION RESIZING:** While `parted` is generally reliable, operations on partition tables always carry a slight risk. The script attempts to resize the *last* partition. Ensure this is the desired behavior. After the partition is resized, the *filesystem* on it will also need to be resized to use the new space (e.g., using `resize2fs` for ext2/3/4, `xfs_growfs` for XFS). The `extend_partition.sh` script will remind you of this.
 
 ## Disclaimer
