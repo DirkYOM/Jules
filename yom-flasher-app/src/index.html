@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YOM Flasher</title>
+    <link rel="stylesheet" href="./styles/main.css">
+</head>
+<body>
+    <header id="app-header">
+        <div id="logo-container">
+            <img id="logo-symbol" src="./assets/logo-symbol.svg" alt="YOM Symbol"> <!-- Updated src and id -->
+            <span id="logo-text">YOM</span> <!-- Updated id -->
+        </div>
+    </header>
+
+    <main id="app-content">
+        <div id="image-selection-view">
+            <h2>Select Image File</h2>
+            <p>Please select the RAW image file you want to flash to the SSD.</p>
+            <button id="select-image-button">Choose Image File...</button>
+            <div id="selected-image-path-container" style="margin-top: 15px; min-height: 20px;">
+                <p><strong>Selected file:</strong> <span id="selected-image-path-text">None</span></p>
+            </div>
+        </div>
+
+        <!-- Add new view for device selection -->
+        <div id="device-selection-view" style="display: none; width: 100%;"> <!-- Initially hidden -->
+            <h2>Select Target Device</h2>
+            <p>Choose the SSD you want to flash. <strong style="color: red;">WARNING: ALL DATA ON THE SELECTED DEVICE WILL BE ERASED.</strong></p>
+            <button id="refresh-devices-button">Refresh Device List</button>
+            <div id="device-list-container" style="margin-top: 15px; border: 1px solid #ccc; padding: 10px; min-height: 100px; max-height: 300px; overflow-y: auto;">
+                <!-- Devices will be listed here by renderer.js -->
+                <p>Click "Refresh Device List" to load devices.</p>
+            </div>
+            <div id="selected-device-info-container" style="margin-top: 15px;">
+                <p><strong>Selected target:</strong> <span id="selected-device-info-text">None</span></p>
+            </div>
+        </div>
+
+        <!-- Flashing controls and progress view (initially hidden) -->
+        <div id="flashing-controls-view" style="display: none; margin-top: 20px; text-align: center;">
+            <button id="start-flashing-button" style="padding: 12px 25px; font-size: 18px;">Start Flashing</button>
+        </div>
+
+        <div id="flashing-progress-view" style="display: none; width: 80%; margin-top: 20px; text-align: center;">
+            <h2>Flashing in Progress...</h2>
+            <p>Please do not close the application or remove the target device.</p>
+            <div id="progress-bar-container" style="width: 100%; background-color: #e0e0e0; border-radius: 5px; margin-top: 10px;">
+                <div id="progress-bar" style="width: 0%; height: 30px; background-color: #00FF44; /* YOM Green */ border-radius: 5px; text-align: center; line-height: 30px; color: black;">
+                    0%
+                </div>
+            </div>
+            <p id="progress-speed-text" style="margin-top: 10px;">Speed: -</p>
+            <p id="progress-raw-output" style="margin-top: 5px; font-size: 0.8em; color: #555; max-height: 100px; overflow-y: auto; background: #f9f9f9; border: 1px solid #eee; padding: 5px;"></p>
+            <button id="cancel-flashing-button" style="margin-top: 20px; background-color: #cc0000; color: white;">Cancel Flashing (Not Implemented)</button>
+        </div>
+    </main>
+
+    <footer id="app-footer">
+        <!-- Footer content can go here -->
+    </footer>
+    <script src="./renderer.js"></script>
+</body>
+</html>

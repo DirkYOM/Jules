@@ -1,0 +1,184 @@
+/* src/styles/main.css */
+body {
+    font-family: 'Georgia', serif; /* Secondary font for body by default */
+    background-color: #FFFFFF; /* White */
+    color: #000000; /* Black */
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+    font-size: 16px; /* Base font size */
+}
+
+#app-header {
+    background-color: #FFFFFF; /* White background for header */
+    padding: 15px 25px; /* Slightly more padding */
+    display: flex;
+    align-items: center;
+    border-bottom: 1px solid #F0F0F0; /* Silver-grey border, subtle */
+}
+
+#logo-container {
+    display: flex;
+    align-items: center;
+}
+
+#logo-symbol { /* Actual logo symbol */
+    width: 24px; /* Adjusted size for visual balance */
+    height: 24px;
+    margin-right: 10px; /* Spacing between symbol and text */
+}
+
+#logo-text { /* For "YOM" text */
+    font-family: 'Public Sans', sans-serif; /* Primary Font */
+    font-weight: 500; /* Medium */
+    font-size: 28px; /* More prominent */
+    letter-spacing: 0.01em; /* Clean, spaced letterforms */
+    color: #000000; /* Black */
+    line-height: 1; /* Ensure it aligns well vertically */
+}
+
+h1, h2, h3, h4, h5, h6 { /* Apply to all heading levels for consistency */
+    font-family: 'Public Sans', sans-serif; /* Primary Font */
+    font-weight: 500; /* Medium */
+    color: #000000; /* Black */
+    letter-spacing: -0.03em; /* Visually tighter but readable */
+    line-height: 1.15; /* Impactful, ensure descenders/ascenders don't crash */
+    margin-top: 0.8em; /* Consistent spacing */
+    margin-bottom: 0.4em;
+}
+
+/* More specific selector for paragraphs within main content to avoid overriding all p tags if not desired */
+#app-content p, #app-content li {
+    font-family: 'Georgia', serif; /* Secondary Font for body copy */
+    line-height: 1.45;
+    color: #000000; /* Default text color */
+    letter-spacing: normal;
+    text-align: left; /* As per guidelines for body copy */
+}
+/* General p might be too broad, but if all p tags should follow this, then p is fine. */
+/* For now, scoped to #app-content */
+
+/* For elements that should use Public Sans but are not headers */
+.public-sans-text {
+    font-family: 'Public Sans', sans-serif;
+    font-weight: 500; /* Medium */
+}
+
+#app-content {
+    flex-grow: 1;
+    padding: 25px; /* Consistent padding */
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    /* justify-content: center; /* Remove this to allow content to flow from top */
+}
+
+/* Refined Button Styling */
+button, .button-style { /* Added class for non-button elements that need button style */
+    font-family: 'Public Sans', sans-serif; /* Primary Font */
+    font-weight: 500; /* Medium */
+    background-color: #00FF44; /* YOM Green */
+    color: #000000; /* Black text. Ensure contrast is sufficient. */
+    border: none; /* Guideline implies clean look */
+    padding: 12px 22px; /* Adjusted padding */
+    border-radius: 4px; /* Subtle rounding */
+    cursor: pointer;
+    font-size: 16px;
+    letter-spacing: 0.01em; /* Slight spacing for clarity */
+    transition: background-color 0.2s ease-in-out, opacity 0.2s ease-in-out;
+}
+
+button:hover, .button-style:hover {
+    background-color: #00E038; /* Slightly darker green on hover */
+    opacity: 1; /* Keep opacity full, change color slightly */
+}
+button:disabled, .button-style:disabled {
+   background-color: #B0B0B0; /* Grey for disabled */
+   color: #707070;
+   cursor: not-allowed;
+}
+
+/* Utility class for YOM Green text if needed */
+.text-yom-green {
+    color: #00FF44;
+}
+
+/* Device list item styling */
+#device-list-container ul {
+    list-style-type: none;
+    padding: 0;
+    margin: 0; /* Ensure no default ul margins */
+}
+
+#device-list-container ul li {
+    padding: 10px 8px; /* More padding for easier clicking */
+    border-bottom: 1px solid #eee;
+    cursor: pointer;
+    transition: background-color 0.15s ease-in-out; /* Smooth hover */
+}
+
+#device-list-container ul li.selected-item {
+    background-color: #E0E0E0; /* Silver-grey for selection */
+    color: #000000;
+    font-weight: bold; /* Already in renderer, but good to have in CSS too */
+}
+#device-list-container ul li:not(.disabled-item):hover {
+   background-color: #F5F5F5; /* Lighter silver-grey on hover, ensure it's different from selected */
+}
+#device-list-container ul li.disabled-item {
+   opacity: 0.5;
+   cursor: not-allowed;
+   background-color: transparent !important; /* Ensure no hover style */
+}
+
+/* Ensure view containers take up appropriate space if multiple are shown or for alignment */
+#image-selection-view, #device-selection-view, #flashing-controls-view, #flashing-progress-view {
+    width: 100%; /* Make views take full width of app-content for better centering/alignment */
+    max-width: 700px; /* Max width for content readability */
+    display: flex; /* Enable flex for children alignment */
+    flex-direction: column;
+    align-items: center; /* Center content within each view */
+    text-align: center; /* Center text for view titles/paragraphs */
+}
+
+#image-selection-view p, #device-selection-view p, #flashing-progress-view p {
+    text-align: center; /* Override general p rule for view intro paragraphs */
+}
+
+/* Ensure specific text elements like selected paths are left-aligned if they were centered by parent */
+#selected-image-path-container p, #selected-device-info-container p {
+    text-align: left;
+}
+
+#progress-bar-container {
+    width: 100%;
+    background-color: #e0e0e0;
+    border-radius: 5px;
+    margin-top: 10px;
+    border: 1px solid #ccc; /* Add a subtle border */
+}
+#progress-bar {
+    width: 0%;
+    height: 30px;
+    background-color: #00FF44; /* YOM Green */
+    border-radius: 4px; /* Match button radius slightly */
+    text-align: center;
+    line-height: 30px;
+    color: black;
+    transition: width 0.25s ease; /* Smooth progress bar transition */
+}
+#progress-raw-output {
+    margin-top: 10px; /* Increased margin */
+    font-size: 0.85em; /* Slightly larger */
+    color: #333; /* Darker grey for better readability */
+    max-height: 120px; /* Slightly more height */
+    overflow-y: auto;
+    background: #fdfdfd;
+    border: 1px solid #e0e0e0;
+    padding: 8px;
+    text-align: left; /* Ensure raw output is left-aligned */
+    white-space: pre-wrap; /* Allow wrapping but preserve spaces */
+    word-break: break-all; /* Break long unbroken strings */
+}
