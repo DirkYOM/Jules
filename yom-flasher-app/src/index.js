@@ -37,7 +37,17 @@ const createWindow = () => {
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
 app.whenReady().then(async () => { // Make the callback async
-  fixPath(); // Attempt to fix PATH issues, especially on macOS when app is launched from GUI
+  // Attempt to call fix-path, checking if it's a direct function or has a .default function
+  if (typeof fixPath === 'function') {
+    fixPath();
+    console.log('fix-path called directly.');
+  } else if (fixPath && typeof fixPath.default === 'function') {
+    fixPath.default();
+    console.log('fix-path called via .default().');
+  } else {
+    console.error('fix-path was loaded, but its structure is not as expected (not a function, no .default function). PATH environment variable might not be corrected. Type of fixPath:', typeof fixPath);
+  }
+
   const mainWindow = createWindow(); // Create the main application window.
 
   // --- Application Startup Checks ---

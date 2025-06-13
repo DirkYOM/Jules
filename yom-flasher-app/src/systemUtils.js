@@ -1,7 +1,19 @@
-const { execFile, spawn } = require('child_process'); // Added spawn here
+const { execFile, spawn } = require('child_process');
 const util = require('util');
-const fs = require('fs').promises; // Import fs promises
+const fs = require('fs').promises;
+const { constants: fsConstants } = require('fs'); // For fs.constants.X_OK
 const execFileAsync = util.promisify(execFile);
+
+let commandPathCache = {}; // To store discovered absolute paths for commands
+
+const COMMON_COMMAND_LOCATIONS = {
+    'dd': ['/bin/dd', '/usr/bin/dd'],
+    'lsblk': ['/bin/lsblk', '/usr/bin/lsblk'],
+    'parted': ['/sbin/parted', '/usr/sbin/parted'],
+    'resize2fs': ['/sbin/resize2fs', '/usr/sbin/resize2fs'],
+    'udisksctl': ['/bin/udisksctl', '/usr/bin/udisksctl'],
+    'command': ['/bin/command', '/usr/bin/command'] // For 'command -v' itself
+};
 
 /**
  * Lists available block devices with relevant information.
@@ -12,7 +24,9 @@ const execFileAsync = util.promisify(execFile);
  * Each object will have keys like: path, name, size, model, isRemovable, isOS, filesystemType.
  */
 async function listBlockDevices() {
-    const command = 'lsblk';
+    // const command = 'lsblk'; // Old
+    const lsblkPath = commandPathCache['lsblk'];
+    if (!lsblkPath) throw new Error("'lsblk' command path not found. Was it checked at startup?");
     // -J for JSON output
     // -b for size in bytes
     // -o to specify columns
@@ -24,7 +38,8 @@ async function listBlockDevices() {
     const args = ['-Jb', '-o', 'PATH,NAME,SIZE,MODEL,FSTYPE,MOUNTPOINT,PKNAME,TYPE,RM'];
 
     try {
-        const { stdout } = await execFileAsync(command, args);
+        // const { stdout } = await execFileAsync(command, args); // Old
+        const { stdout } = await execFileAsync(lsblkPath, args); // New
         const lsblkData = JSON.parse(stdout);
         let osDevicePath = null; // Stores the path of the disk hosting the OS, e.g., /dev/sda
 
@@ -109,7 +124,10 @@ async function listBlockDevices() {
 function flashImage(imagePath, targetDevicePath, totalSizeInBytes, onProgress) {
     return new Promise((resolve, reject) => {
         let lastProgress = 0; // Initialize lastProgress
-        const command = 'dd';
+        // const command = 'dd'; // Old
+        const ddPath = commandPathCache['dd'];
+        if (!ddPath) return reject(new Error("'dd' command path not found.")); // Promise context
+
         const args = [
             `if=${imagePath}`,
             `of=${targetDevicePath}`,
@@ -122,9 +140,9 @@ function flashImage(imagePath, targetDevicePath, totalSizeInBytes, onProgress) {
         // Electron app might need to be launched with sudo, or a helper with pkexec/sudo-prompt used.
         // For now, assuming permissions are handled externally or app is run as root.
 
-        console.log(`Executing dd: ${command} ${args.join(' ')}`); // For logging
+        console.log(`Executing dd: ${ddPath} ${args.join(' ')}`); // For logging
 
-        const ddProcess = spawn(command, args);
+        const ddProcess = spawn(ddPath, args); // New
 
         // const progressRegex = /(\d+)\s*bytes.*copied,\s*([0-9.]+)\s*s,\s*([0-9.]+\s*\wB\/s)/;
         // Example dd output on stderr:
@@ -225,31 +243,82 @@ async function getImageSize(imagePath) {
 /**
  * Checks if a given command-line utility exists and is executable.
  * Uses 'command -v' which is a POSIX standard way to find a command.
- * @param {string} command - The name of the command to check (e.g., "dd", "lsblk").
- * @returns {Promise<boolean>} True if the command exists, false otherwise.
+ * @param {string} commandName - The name of the command to check (e.g., "dd", "lsblk").
+ * @returns {Promise<string|null>} The absolute path to the command if found and executable, otherwise null.
  */
-async function checkCommandExists(command) {
+async function checkCommandExists(commandName) {
+    // 1. Try 'command -v' first (relies on PATH)
     try {
-        // Using 'command -v' for better POSIX compatibility over 'which'
-        await execFileAsync('command', ['-v', command]);
-        return true;
+        const commandUtilAbsPath = commandPathCache['command'] || COMMON_COMMAND_LOCATIONS['command'][0] || 'command';
+        const { stdout } = await execFileAsync(commandUtilAbsPath, ['-v', commandName]);
+        const discoveredPath = stdout.trim();
+        if (discoveredPath) {
+            // Optional: Verify it's executable, though 'command -v' usually implies this.
+            await fs.access(discoveredPath, fsConstants.X_OK);
+            console.log(`Command '${commandName}' found via 'command -v' at: ${discoveredPath}`);
+            return discoveredPath;
+        }
     } catch (error) {
-        console.warn(`Command check failed for '${command}': ${error.message}`);
-        return false;
+        // 'command -v' failed or path not executable, proceed to check common locations
+        console.warn(`'command -v ${commandName}' failed or path not executable. Error: ${error.message}. Trying common locations.`);
     }
+
+    // 2. If 'command -v' fails, check predefined common locations
+    const locations = COMMON_COMMAND_LOCATIONS[commandName];
+    if (locations) {
+        for (const loc of locations) {
+            try {
+                await fs.access(loc, fsConstants.X_OK); // Check for existence and execute permission
+                console.log(`Command '${commandName}' found at absolute path: ${loc}`);
+                return loc; // Return the first valid location found
+            } catch (e) {
+                // fs.access failed (not found or not executable), try next location
+            }
+        }
+    }
+    console.error(`Command '${commandName}' not found via 'command -v' or in common locations.`);
+    return null; // Not found
 }
 
 /**
- * Checks for the existence of a list of required command-line utilities.
- * @param {Array<string>} commands - An array of command names to check.
+ * Checks for the existence of a list of required command-line utilities and populates the commandPathCache.
+ * @param {Array<string>} commandNames - An array of command names to check.
  * @returns {Promise<Array<string>>} A promise that resolves to an array of missing command names.
  * If all commands exist, the array will be empty.
  */
-async function checkAllRequiredCommands(commands) {
+async function checkAllRequiredCommands(commandNames) {
     const missingCommands = [];
-    for (const cmd of commands) {
-        if (!await checkCommandExists(cmd)) {
-            missingCommands.push(cmd);
+    commandPathCache = {}; // Reset cache before checking
+
+    // First, ensure 'command' itself is available for 'command -v'
+    // Try common locations for 'command' first, then 'command -v command' if necessary (though that's circular without a base)
+    let commandUtilPath = null;
+    for (const loc of COMMON_COMMAND_LOCATIONS['command']) {
+        try {
+            await fs.access(loc, fsConstants.X_OK);
+            commandUtilPath = loc;
+            break;
+        } catch (e) {/* try next */}
+    }
+    if (commandUtilPath) {
+        commandPathCache['command'] = commandUtilPath;
+        console.log(`Using 'command' utility at: ${commandUtilPath}`);
+    } else {
+        console.error("'command' utility itself not found in common locations. 'command -v' checks might be less reliable or fail if 'command' is not in a standard PATH location already accessible to Node's child_process.");
+        // No 'command' found, so checkCommandExists will skip 'command -v' for other commands
+        // and rely only on COMMON_COMMAND_LOCATIONS.
+    }
+
+    for (const cmdName of commandNames) {
+        if (cmdName === 'command' && commandUtilPath) { // Already found 'command'
+            if (!commandPathCache[cmdName]) commandPathCache[cmdName] = commandUtilPath; // Ensure it's cached if requested
+            continue;
+        }
+        const path = await checkCommandExists(cmdName);
+        if (path) {
+            commandPathCache[cmdName] = path;
+        } else {
+            missingCommands.push(cmdName);
         }
     }
     return missingCommands;
@@ -291,8 +360,10 @@ async function extendPartition(targetDevicePath, partitionNumber = 3) {
 
     try {
         console.log(`Attempting to unmount partition ${partitionDevicePath} if mounted...`);
+        const udisksctlPath = commandPathCache['udisksctl'];
+        if (!udisksctlPath) throw new Error("'udisksctl' command path not found.");
         // Use udisksctl for unmounting as it's generally safer and handles multiple users.
-        await execFileAsync('udisksctl', ['unmount', '-b', partitionDevicePath]);
+        await execFileAsync(udisksctlPath, ['unmount', '-b', partitionDevicePath]); // New
         console.log(`Successfully unmounted ${partitionDevicePath} or it was already unmounted.`);
     } catch (error) {
         // Log error but proceed, as parted might still work or provide a more specific error.
@@ -311,11 +382,15 @@ async function extendPartition(targetDevicePath, partitionNumber = 3) {
         '100%' // Extend to fill the disk
     ];
 
-    console.log(`Executing parted: ${command} ${args.join(' ')}`);
+    // const command = 'parted'; // Old
+    const partedPath = commandPathCache['parted'];
+    if (!partedPath) throw new Error("'parted' command path not found.");
+    console.log(`Executing parted: ${partedPath} ${args.join(' ')}`); // New
 
     try {
         // Important: parted might print to stdout on success, or stderr for warnings/errors.
-        const { stdout, stderr } = await execFileAsync(command, args);
+        // const { stdout, stderr } = await execFileAsync(command, args); // Old
+        const { stdout, stderr } = await execFileAsync(partedPath, args); // New
         if (stdout) console.log(`parted stdout: ${stdout}`);
         if (stderr) console.warn(`parted stderr: ${stderr}`); // stderr might contain warnings even on success
 
@@ -332,7 +407,9 @@ async function extendPartition(targetDevicePath, partitionNumber = 3) {
             // For simplicity, we'll try it. If it needs unmounting, the previous unmount might have helped.
             // If it needs mounting, that's more complex here.
             // Let's assume for now it works on an unmounted partition or can handle a mounted one if needed.
-            const { stdout: resizefs_stdout, stderr: resizefs_stderr } = await execFileAsync('resize2fs', [partitionDevicePath]);
+            const resize2fsPath = commandPathCache['resize2fs'];
+            if (!resize2fsPath) throw new Error("'resize2fs' command path not found.");
+            const { stdout: resizefs_stdout, stderr: resizefs_stderr } = await execFileAsync(resize2fsPath, [partitionDevicePath]); // New
             if (resizefs_stdout) console.log(`resize2fs stdout: ${resizefs_stdout}`);
             if (resizefs_stderr) console.warn(`resize2fs stderr: ${resizefs_stderr}`);
             console.log(`Filesystem on ${partitionDevicePath} successfully resized.`);
@@ -366,9 +443,11 @@ async function safeEject(targetDevicePath) {
 
     try {
         // Step 1: List all partitions for the given disk.
+        const lsblkPathForEject = commandPathCache['lsblk'];
+        if (!lsblkPathForEject) throw new Error("'lsblk' command path not found for eject operation.");
         // We can reuse parts of listBlockDevices or call lsblk directly for simplicity here
         // to get children of targetDevicePath.
-        const { stdout } = await execFileAsync('lsblk', ['-Jb', '-o', 'PATH,TYPE', targetDevicePath]);
+        const { stdout } = await execFileAsync(lsblkPathForEject, ['-Jb', '-o', 'PATH,TYPE', targetDevicePath]); // New
         const lsblkData = JSON.parse(stdout);
 
         let partitionsToUnmount = [];
@@ -390,7 +469,8 @@ async function safeEject(targetDevicePath) {
             // Or it could be that targetDevicePath is a partition itself.
             // Let's try to unmount targetDevicePath directly if it appears to be a partition
             // (e.g. /dev/sda1). This is a fallback.
-            const lsblkInfoSelf = await execFileAsync('lsblk', ['-Jb', '-o', 'PATH,TYPE,MOUNTPOINT', targetDevicePath]);
+            // lsblkPathForEject should already be defined and checked
+            const lsblkInfoSelf = await execFileAsync(lsblkPathForEject, ['-Jb', '-o', 'PATH,TYPE,MOUNTPOINT', targetDevicePath]); // New
             const selfInfo = JSON.parse(lsblkInfoSelf.stdout).blockdevices[0];
             if (selfInfo && selfInfo.type === 'part' && selfInfo.mountpoint) { // Check if it's a mounted partition
                  partitionsToUnmount.push(targetDevicePath);
@@ -403,7 +483,9 @@ async function safeEject(targetDevicePath) {
         for (const partPath of partitionsToUnmount) {
             try {
                 console.log(`Attempting to unmount ${partPath}...`);
-                await execFileAsync('udisksctl', ['unmount', '-b', partPath]);
+                const udisksctlPathForEject = commandPathCache['udisksctl'];
+                if (!udisksctlPathForEject) throw new Error("'udisksctl' command path not found for unmount in eject.");
+                await execFileAsync(udisksctlPathForEject, ['unmount', '-b', partPath]); // New
                 console.log(`Successfully unmounted ${partPath}.`);
             } catch (unmountError) {
                 // Ignore "Not Mounted" errors, but log others.
@@ -418,8 +500,10 @@ async function safeEject(targetDevicePath) {
 
         // Step 3: Power off the disk.
         // udisksctl power-off requires the main block device (e.g. /dev/sda), not a partition.
+        const udisksctlPathForEjectPowerOff = commandPathCache['udisksctl']; // Re-affirm or pass from above
+        if (!udisksctlPathForEjectPowerOff) throw new Error("'udisksctl' command path not found for power-off in eject.");
         console.log(`Attempting to power off ${targetDevicePath}...`);
-        await execFileAsync('udisksctl', ['power-off', '-b', targetDevicePath]);
+        await execFileAsync(udisksctlPathForEjectPowerOff, ['power-off', '-b', targetDevicePath]); // New
         console.log(`Successfully powered off ${targetDevicePath}.`);
 
         return Promise.resolve();
