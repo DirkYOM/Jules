@@ -1,81 +1,83 @@
-# Ubuntu SSD Flashing and Partition Extension Utility
+# YOM SSD Flasher Electron App
 
 ## Overview
 
-This utility provides a set of bash scripts to simplify the process of:
-1.  Flashing a raw disk image (e.g., an Ubuntu Server image) to an SSD or other block device.
-2.  Extending the last partition on that device to utilize all available space.
+The YOM SSD Flasher is a GUI application built with Electron for flashing raw disk images (e.g., OS images like Ubuntu Server, custom YOM images) to SSDs, SD cards, USB drives, or other block devices. It also provides functionality to extend the primary partition on the flashed device to utilize all available space.
 
-It is designed to be run on Ubuntu-like systems.
+This application is primarily designed for Linux systems and relies on common Linux command-line utilities for its core operations.
 
 ## Prerequisites
 
-*   **Command-line Utilities & GUI:**
-    *   `bash`: The scripts are written in bash.
-    *   `dd`: Used for the low-level disk write operation during image flashing.
-    *   `parted`: Used for partition table manipulation (viewing and resizing).
-    *   `zenity`: Used to provide a graphical user interface for file and device selection, and for confirmations.
-    *   These utilities (`dd`, `parted`) are typically pre-installed on most Ubuntu and Debian-based systems. `zenity` might also be pre-installed on desktop editions.
-    *   If any are missing, they can be installed, for example on Ubuntu/Debian:
-        ```bash
-        sudo apt update && sudo apt install coreutils parted zenity
-        ```
-*   **Root Privileges:**
-    *   Accessing raw disk devices (like `/dev/sda` or `/dev/nvme0n1`), modifying partition tables, and often running `dd` effectively requires root privileges. Therefore, the main script **must** be run with `sudo`.
+Before using this application, please ensure the following command-line utilities are installed on your system and are accessible via your system's `PATH`:
 
-## Scripts
+*   **`dd`**: Used for the low-level disk write operation during image flashing.
+*   **`lsblk`**: Used to list available block devices and gather information about them (e.g., size, model, OS drive detection).
+*   **`parted`**: Used for partition table manipulation (specifically for extending the partition).
+*   **`resize2fs`**: Used to resize ext2/3/4 filesystems after the partition has been extended. (If you are using a different filesystem, you might need to resize it manually using appropriate tools.)
+*   **`udisksctl`**: Used for safe device ejection (unmounting and powering off).
 
-The utility consists of the following scripts:
+The application performs a check for these commands at startup. If any are missing, it will display a warning dialog. Without these utilities, the application will not function correctly.
 
-*   `flash_and_extend_app.sh`:
-    *   This is the main interactive application script that orchestrates the entire process.
-    *   It prompts the user for necessary information (image path, target device) and calls the other scripts.
-*   `flash_image.sh`:
-    *   This script is responsible for flashing the raw image file to the specified target device using `dd`.
-    *   It includes multiple safety checks and requires explicit user confirmation before writing to the disk.
-    *   It is typically called by `flash_and_extend_app.sh`.
-*   `extend_partition.sh`:
-    *   This script handles the extension of the last partition on the target device to fill the remaining space.
-    *   It uses `parted` to modify the partition table.
-    *   It also includes safety checks and user confirmation.
-    *   It is typically called by `flash_and_extend_app.sh` after a successful image flash.
+### Root/Sudo Privileges
+
+**Crucial:** This application interacts directly with block devices (e.g., `/dev/sda`, `/dev/nvme0n1`) for flashing and partitioning. These operations require **root (sudo) privileges**.
+
+You will need to run the YOM SSD Flasher application with `sudo`. For example:
+*   If running from source in a development environment: `sudo npm start`
+*   If running a packaged executable: `sudo ./yom-flasher-app` (or the equivalent for your executable name).
+
+Failure to run with sufficient privileges will cause the underlying `dd`, `parted`, etc., commands to fail, likely resulting in errors related to permissions or device access.
 
 ## Usage
 
-1.  **Ensure all scripts are executable:**
-    If you've cloned the repository or downloaded the scripts, make sure they are executable:
-    ```bash
-    chmod +x flash_and_extend_app.sh flash_image.sh extend_partition.sh
-    ```
-    (The tool already does this for each script upon creation).
+1.  **Installation (Development):**
+    *   Clone the repository (if you haven't already).
+    *   Install dependencies: `npm install`
+2.  **Running the Application:**
+    *   As mentioned in "Prerequisites", run with `sudo`:
+        ```bash
+        sudo npm start
+        ```
+    *   (If you have a packaged version, run the executable with `sudo`.)
+3.  **Application Flow:**
+    *   **Select Image:** Click the "Select Firmware File" (or similar) button to open a file dialog. Choose the raw disk image file (`.img`, `.iso`, `.bin`, etc.) you wish to flash. The selected path will be displayed.
+    *   **Select Target Device:**
+        *   The application will attempt to list available block devices. Click "Refresh List" if needed.
+        *   Devices are listed with their path, model, and size.
+        *   **Safety Feature:** The application attempts to identify and visually mark your current operating system drive (e.g., "(OS Drive)"). **It is strongly recommended NOT to select your OS drive.**
+        *   Carefully select the target device from the list. The selected device info will be displayed.
+    *   **Start Flashing:** Once both an image and a target device are selected, the "Start Flashing" button (or similar) will become available.
+        *   Clicking this button will prompt you with a **critical confirmation dialog** summarizing your selections and warning about data erasure.
+        *   You must explicitly confirm to proceed.
+    *   **Flashing Progress:** A progress bar will show the status of the flashing operation, including speed and percentage completion. Detailed output from `dd` is also shown.
+    *   **Post-Flashing Operations:**
+        *   After successful flashing, the application will automatically attempt to:
+            1.  **Extend Partition:** Resize the last partition (assumed to be the main data partition, typically partition 3 for YOM images) on the target device to use all available space.
+            2.  **Safe Eject:** Unmount all partitions on the target device and then power it off.
+        *   Progress and status for these operations will also be displayed.
+    *   **Completion:** A success message will be shown upon successful completion of all steps. The UI will then reset for a new operation.
 
-2.  **Run the main application script:**
-    Open a terminal and navigate to the directory containing the scripts. Run the main application script with `sudo` from a graphical environment (as it uses `zenity`):
-    ```bash
-    sudo ./flash_and_extend_app.sh
-    ```
+## WARNINGS - READ CAREFULLY!
 
-3.  **Follow the GUI prompts:**
-    *   A welcome message will be displayed.
-    *   **Image File Selection:** A file dialog will appear, allowing you to browse and select the raw image file (e.g., `/home/user/Downloads/ubuntu-server.img`).
-    *   **Target Device Selection:** A dialog will list available block devices.
-        *   It will display the device path (e.g., `/dev/sda`), size, and model.
-        *   **Safety Feature:** The script attempts to identify and disable selection of your current operating system drive and the drive from which the image is being read (if it's a distinct removable device).
-        *   **Be extremely careful when selecting the target device from this list.**
-    *   **Final Confirmation:** A graphical confirmation dialog will summarize the selected image and target device, and will prominently warn you about data erasure. You must explicitly agree to proceed.
-    *   The underlying scripts (`flash_image.sh` and `extend_partition.sh`) still have their own final text-based "Type YES to proceed" confirmations in the terminal as an additional safety layer for the critical `dd` and `parted` commands.
+*   **EXTREME RISK OF DATA LOSS:**
+    *   Flashing an image to a device using `dd` is a **destructive operation**.
+    *   **ALL DATA on the selected target device will be PERMANENTLY ERASED AND OVERWRITTEN.** There is typically no way to recover this data.
 
-## WARNINGS
-
-*   **EXTREME RISK OF DATA LOSS:** Writing an image to a device with `dd` is a destructive operation. **ALL DATA on the selected target device will be PERMANENTLY ERASED AND OVERWRITTEN.**
 *   **SELECT THE CORRECT TARGET DEVICE:**
-    *   While the GUI attempts to prevent you from selecting your OS drive or the image's source drive (if on removable media), these checks might not be foolproof in all system configurations.
-    *   **You are ultimately responsible for verifying the correct target device.** Double-check, triple-check, and then check again.
-    *   Use system tools like `lsblk -f`, `gparted`, or `Disks` (on GNOME) to be absolutely certain about device names and their contents before proceeding.
-    *   Choosing the wrong device can lead to complete data loss on that device.
-*   **BACKUP YOUR DATA:** Before using this utility on any device, ensure you have a complete and verified backup of any important data on it and on other connected devices.
-*   **PARTITION RESIZING:** While `parted` is generally reliable, operations on partition tables always carry a slight risk. The script attempts to resize the *last* partition. Ensure this is the desired behavior. After the partition is resized, the *filesystem* on it will also need to be resized to use the new space (e.g., using `resize2fs` for ext2/3/4, `xfs_growfs` for XFS). The `extend_partition.sh` script will remind you of this.
+    *   This is the most critical step. **Mistakes here can lead to irreversible data loss on the wrong drive (e.g., your main OS drive, backup drives).**
+    *   While the application attempts to identify your OS drive, this detection might not be foolproof in all system configurations.
+    *   **YOU ARE SOLELY RESPONSIBLE for verifying the correct target device.**
+    *   Before proceeding, use system tools like `lsblk -f`, `sudo fdisk -l`, `gparted`, or the "Disks" utility (on GNOME) to be absolutely certain about device names (e.g., `/dev/sda`, `/dev/sdb`, `/dev/nvme0n1`) and their contents.
+    *   **Double-check, triple-check, and then check again before confirming the flash operation.**
+
+*   **BACKUP YOUR DATA:**
+    *   Before using this utility on any device, ensure you have a complete and verified backup of any important data on that device.
+    *   It's also wise to ensure backups of other critical data on your system are up to date, just in case of accidental misselection.
+
+*   **PARTITION RESIZING:**
+    *   The application attempts to extend the 3rd partition. Ensure this is appropriate for your image and use case.
+    *   Operations on partition tables always carry a slight risk. The `resize2fs` command is used for `ext2/3/4` filesystems. If your image uses a different filesystem on the target partition, `resize2fs` will fail, and you will need to resize the filesystem manually after the partition boundary is extended.
 
 ## Disclaimer
 
-Use this utility entirely at your own risk. The authors and contributors are not responsible for any data loss, system damage, or other issues that may arise from its use or misuse. Always understand what the scripts do before running them, especially when operations involve `sudo` and direct disk access.
+This utility is provided "as-is" without any warranties. Use it entirely at your own risk. The authors and contributors are not responsible for any data loss, system damage, or other issues that may arise from its use or misuse. Always understand the operations being performed before proceeding, especially when direct disk access with root privileges is involved.

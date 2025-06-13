@@ -1,7 +1,7 @@
 /* src/styles/main.css */
 body {
     font-family: 'Georgia', serif; /* Secondary font for body by default */
-    background-color: #FFFFFF; /* White */
+    background-color: #F7F7F7; /* Light grey background for the whole page */
     color: #000000; /* Black */
     margin: 0;
     padding: 0;
@@ -68,7 +68,7 @@ h1, h2, h3, h4, h5, h6 { /* Apply to all heading levels for consistency */
 
 #app-content {
     flex-grow: 1;
-    padding: 25px; /* Consistent padding */
+    padding: 30px; /* Consistent padding */
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -100,12 +100,33 @@ button:disabled, .button-style:disabled {
    cursor: not-allowed;
 }
 
+#cancel-flashing-button:disabled {
+    background-color: #d3d3d3; /* light grey */
+    color: #707070;
+    cursor: not-allowed;
+}
+/* Ensure disabled hover override */
+#cancel-flashing-button:disabled:hover {
+    background-color: #d3d3d3;
+    color: #707070;
+}
+
+
 /* Utility class for YOM Green text if needed */
 .text-yom-green {
     color: #00FF44;
 }
 
+#selected-image-path-text, #selected-device-info-text {
+    font-weight: bold;
+    color: #333;
+}
+
 /* Device list item styling */
+#device-list-container {
+    border-radius: 4px;
+}
+
 #device-list-container ul {
     list-style-type: none;
     padding: 0;
@@ -134,14 +155,30 @@ button:disabled, .button-style:disabled {
 }
 
 /* Ensure view containers take up appropriate space if multiple are shown or for alignment */
-#image-selection-view, #device-selection-view, #flashing-controls-view, #flashing-progress-view {
+/* Refined View Sections */
+section#image-selection-view, /* Targeting sections as per HTML update */
+section#device-selection-view,
+section#flashing-controls-view,
+section#flashing-progress-view {
     width: 100%; /* Make views take full width of app-content for better centering/alignment */
     max-width: 700px; /* Max width for content readability */
-    display: flex; /* Enable flex for children alignment */
-    flex-direction: column;
-    align-items: center; /* Center content within each view */
-    text-align: center; /* Center text for view titles/paragraphs */
+    /* display: flex; /* Already on #image-selection-view etc. */
+    /* flex-direction: column; /* Already on #image-selection-view etc. */
+    /* align-items: center; /* Already on #image-selection-view etc. */
+    /* text-align: center; /* Already on #image-selection-view etc. */
+
+    background-color: #fff; /* Card-like appearance */
+    padding: 20px; /* Padding within each section */
+    margin-bottom: 20px; /* Separation */
+    border-radius: 6px; /* Modern card look */
+    box-shadow: 0 2px 10px rgba(0,0,0,0.05); /* Subtle shadow */
 }
+/* The following styles were already applied to the views by ID, but now they are sections */
+/* Keep specific styles for p and h2 within sections if needed */
+section#image-selection-view p, section#device-selection-view p, section#flashing-progress-view p {
+    text-align: center; /* Override general p rule for view intro paragraphs */
+}
+
 
 #image-selection-view p, #device-selection-view p, #flashing-progress-view p {
     text-align: center; /* Override general p rule for view intro paragraphs */
@@ -173,7 +210,7 @@ button:disabled, .button-style:disabled {
     margin-top: 10px; /* Increased margin */
     font-size: 0.85em; /* Slightly larger */
     color: #333; /* Darker grey for better readability */
-    max-height: 120px; /* Slightly more height */
+    max-height: 150px; /* Slightly more height */
     overflow-y: auto;
     background: #fdfdfd;
     border: 1px solid #e0e0e0;
@@ -181,4 +218,45 @@ button:disabled, .button-style:disabled {
     text-align: left; /* Ensure raw output is left-aligned */
     white-space: pre-wrap; /* Allow wrapping but preserve spaces */
     word-break: break-all; /* Break long unbroken strings */
+    border-radius: 4px; /* Added border-radius */
+}
+
+/* Footer Styling */
+#app-footer {
+    padding: 15px 25px;
+    text-align: center;
+    border-top: 1px solid #F0F0F0;
+    font-size: 0.9em;
+    color: #555;
+    background-color: #FFFFFF; /* Assuming it should match header */
+}
+
+/* Global Message Container */
+#global-message-container {
+    width: 100%;
+    max-width: 700px; /* Centered by #app-content's align-items */
+    padding: 15px;
+    margin-bottom: 20px;
+    border-radius: 5px;
+    text-align: center;
+    font-family: 'Public Sans', sans-serif;
+    /* display: none; is handled inline in HTML */
+}
+
+.message-container.error {
+    background-color: #ffdddd;
+    border-left: 5px solid #f44336;
+    color: #f44336;
+}
+
+.message-container.success {
+    background-color: #ddffdd;
+    border-left: 5px solid #4CAF50;
+    color: #4CAF50;
+}
+
+.message-container.info {
+    background-color: #e7f3fe;
+    border-left: 5px solid #2196F3;
+    color: #2196F3;
 }

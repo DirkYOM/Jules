@@ -1,9 +1,11 @@
 const { app, BrowserWindow, ipcMain, dialog } = require('electron'); // MODIFIED: Added ipcMain, dialog
 const path = require('node:path'); // Note: path was 'path' before, ensure 'node:path' is okay or use 'path'
-const systemUtils = require('./systemUtils'); // New: Assuming systemUtils.js is in the same directory (src)
-const Store = require('electron-store'); // New
+// const systemUtils = require('./systemUtils'); // Old way
+const { listBlockDevices, flashImage, extendPartition, safeEject, getImageSize, checkAllRequiredCommands } = require('./systemUtils'); // New: Destructured import + checkAllRequiredCommands
+const Store = require('electron-store'); // For persisting simple key-value data like last opened directory
 
-const store = new Store(); // New: Initialize electron-store
+// Initialize electron-store. User data is typically stored in app.getPath('userData').
+const store = new Store();
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
 if (require('electron-squirrel-startup')) {
@@ -33,36 +35,61 @@ const createWindow = () => {
 // This method will be called when Electron has finished
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
-app.whenReady().then(() => {
-  const mainWindow = createWindow(); // MODIFIED: Get mainWindow instance
+app.whenReady().then(async () => { // Make the callback async
+  const mainWindow = createWindow(); // Create the main application window.
 
-  // IPC handler for image selection
+  // --- Application Startup Checks ---
+  // Check for required command-line utilities critical for the app's functionality.
+  // If any are missing, an error dialog is shown to the user.
+  // The application will still load, but core operations will likely fail.
+  const requiredCommands = ['dd', 'lsblk', 'parted', 'resize2fs', 'udisksctl'];
+  const missingCommands = await checkAllRequiredCommands(requiredCommands);
+  if (missingCommands.length > 0) {
+      dialog.showErrorBox(
+          'Missing Required Commands',
+          `The following critical commands are missing or not found in PATH: \n\n${missingCommands.join(', ')}\n\nPlease install them and ensure they are in your system's PATH for the application to function correctly.`
+      );
+      // For a flasher utility, these commands are essential.
+      // Consider whether the app should quit if commands are missing: app.quit();
+  }
+
+  // --- IPC Handlers ---
+  // These handlers define how the main process responds to messages (invocations) from the renderer process.
+
+  // Handles the 'dialog:selectImage' event trigger from the renderer.
+  // Shows an open file dialog to select a raw image file.
+  // Persists the last opened directory for a better user experience.
   ipcMain.handle('dialog:selectImage', async () => {
-    const lastOpenedDirectory = store.get('lastOpenedDirectory'); // Get stored path
+    // Retrieve the last directory path used for opening files, to provide a consistent dialog starting point.
+    const lastOpenedDirectory = store.get('lastOpenedDirectory');
 
-    // mainWindow variable from createWindow() needs to be in scope.
+    // mainWindow must be in scope for dialog.showOpenDialog.
     const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
         title: 'Select RAW Image File',
         buttonLabel: 'Select Image',
         properties: ['openFile'],
-        defaultPath: lastOpenedDirectory, // Use stored path as default
+        defaultPath: lastOpenedDirectory, // Start dialog in the last used directory.
         filters: [
             { name: 'RAW Disk Images', extensions: ['img', 'iso', 'bin', 'raw', 'dmg', '*'] },
             { name: 'All Files', extensions: ['*'] }
         ]
     });
     if (canceled || filePaths.length === 0) {
-        return null;
+        return null; // User cancelled or closed the dialog.
     } else {
         const selectedFilePath = filePaths[0];
-        store.set('lastOpenedDirectory', path.dirname(selectedFilePath)); // Save the directory
-        return selectedFilePath;
+        // Store the directory of the selected file for next time.
+        store.set('lastOpenedDirectory', path.dirname(selectedFilePath));
+        return selectedFilePath; // Return the full path of the selected image.
     }
   });
 
+  // Handles request from renderer to list available block/storage devices.
+  // Calls systemUtils.listBlockDevices and returns the result or an error object.
   ipcMain.handle('system:listDevices', async () => {
       try {
-          const devices = await systemUtils.listBlockDevices();
+          // Using destructured listBlockDevices directly
+          const devices = await listBlockDevices();
           return devices;
       } catch (error) {
           console.error('Error listing devices in main process:', error);
@@ -71,18 +98,27 @@ app.whenReady().then(() => {
       }
   });
 
+  // Handles request to start the image flashing process.
+  // Takes imagePath and devicePath from renderer, gets image size, then calls systemUtils.flashImage.
+  // Progress is streamed back to the renderer via 'flash:progress' events.
   ipcMain.handle('flash:start', async (event, imagePath, devicePath) => {
       if (!imagePath || !devicePath) {
           return { success: false, message: 'Image path or device path is missing.' };
       }
 
-      const webContents = event.sender;
+      const webContents = event.sender; // To send progress updates back to the correct window.
 
       try {
-          console.log(`Starting flash: Image=${imagePath}, Device=${devicePath}`);
-          await systemUtils.flashImage(imagePath, devicePath, (progressData) => {
-              console.log('Main process flash progress:', progressData);
-              webContents.send('flash:progress', progressData);
+          const totalSize = await getImageSize(imagePath); // Get image size for accurate progress.
+          if (!totalSize || totalSize <= 0) {
+              return { success: false, message: 'Could not determine image size or image is empty.' };
+          }
+
+          console.log(`Starting flash: Image=${imagePath}, Device=${devicePath}, Size=${totalSize}`);
+          // Using destructured flashImage directly
+          await flashImage(imagePath, devicePath, totalSize, (progressData) => {
+              // console.log('Main process flash progress:', progressData); // Optional: can be very noisy
+              webContents.send('flash:progress', progressData); // Send progress data to renderer.
           });
           return { success: true, message: 'Flashing completed successfully.' };
       } catch (error) {
@@ -91,15 +127,18 @@ app.whenReady().then(() => {
       }
   });
 
+  // Handles request to extend a partition on the target device after flashing.
+  // Calls systemUtils.extendPartition.
   ipcMain.handle('partition:extend', async (event, devicePath, partitionNumber) => {
       if (!devicePath) {
           return { success: false, message: 'Device path is missing for partition extension.' };
       }
-      const partNum = partitionNumber || 3; // Default to 3 as per requirements
+      const partNum = partitionNumber || 3; // Default to partition number 3 if not specified.
 
       try {
           console.log(`Starting partition extend: Device=${devicePath}, Partition=${partNum}`);
-          await systemUtils.extendPartition(devicePath, partNum);
+          // Using destructured extendPartition directly
+          await extendPartition(devicePath, partNum);
           return { success: true, message: `Partition ${partNum} on ${devicePath} extended successfully.` };
       } catch (error) {
           console.error(`Error during partition extension in main process for ${devicePath}:`, error);
@@ -107,6 +146,8 @@ app.whenReady().then(() => {
       }
   });
 
+  // Handles request to safely eject the target device.
+  // Calls systemUtils.safeEject.
   ipcMain.handle('device:eject', async (event, devicePath) => {
       if (!devicePath) {
           return { success: false, message: 'Device path is missing for eject.' };
@@ -114,7 +155,8 @@ app.whenReady().then(() => {
 
       try {
           console.log(`Starting safe eject for: Device=${devicePath}`);
-          await systemUtils.safeEject(devicePath);
+          // Using destructured safeEject directly
+          await safeEject(devicePath);
           return { success: true, message: `Device ${devicePath} ejected successfully.` };
       } catch (error) {
           console.error(`Error during safe eject in main process for ${devicePath}:`, error);
@@ -122,10 +164,12 @@ app.whenReady().then(() => {
       }
   });
 
+  // Handles request from renderer to show a native error dialog.
   ipcMain.on('dialog:showError', (event, title, content) => {
       dialog.showErrorBox(title || 'Error', content || 'An unexpected error occurred.');
   });
 
+  // Handles request from renderer to show a native success/info message dialog.
   ipcMain.on('dialog:showSuccess', (event, title, content) => {
       const window = BrowserWindow.fromWebContents(event.sender); // Get the window that sent the message
       dialog.showMessageBox(window || mainWindow, { // Fallback to mainWindow if sender window not found
@@ -136,8 +180,7 @@ app.whenReady().then(() => {
       });
   });
 
-  // On OS X it's common to re-create a window in the app when the
-  // dock icon is clicked and there are no other windows open.
+  // macOS specific: Re-create a window when the dock icon is clicked and no other windows are open.
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createWindow();

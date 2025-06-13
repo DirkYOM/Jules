@@ -1,5 +1,6 @@
-const { execFile } = require('child_process');
+const { execFile, spawn } = require('child_process'); // Added spawn here
 const util = require('util');
+const fs = require('fs').promises; // Import fs promises
 const execFileAsync = util.promisify(execFile);
 
 /**
@@ -83,24 +84,31 @@ async function listBlockDevices() {
         console.error(`Stderr: ${error.stderr}`); // Include stderr for more details
         // For the Electron app, we'll want to send this error to the renderer process
         // so it can be displayed to the user.
-        throw new Error(`Failed to list block devices. Output: ${error.stderr || error.message}`);
+        throw new Error(`Failed to list available storage devices (lsblk). Ensure 'lsblk' is installed and you have permissions. Details: ${error.stderr || error.message}`);
     }
 }
 
 // Export the function for use in main Electron process
-const { spawn } = require('child_process'); // Add spawn
+// const { spawn } = require('child_process'); // spawn was already imported/moved to top
 
 /**
  * Flashes a raw image file to a target device using dd.
+ * This function spawns a 'dd' process to write the image.
+ * It requires 'sudo' privileges for 'dd' to access block devices directly.
+ * The 'bs=4M' argument sets a block size of 4MB for potentially faster transfers.
+ * 'status=progress' enables progress reporting from GNU dd (stderr).
+ * 'conv=fsync' ensures data is physically written to disk before 'dd' exits.
  * @param {string} imagePath Absolute path to the raw image file.
  * @param {string} targetDevicePath Absolute path to the target device (e.g., /dev/sda).
+ * @param {number} totalSizeInBytes Total size of the image in bytes for progress calculation.
  * @param {function} onProgress Callback function to report progress.
- *                   It will be called with an object like: { progress: Number, speed: String, eta: String (optional) }
+ *                   It will be called with an object like: { progress: Number, speed: String, rawLine: String }
  *                   Progress is a percentage (0-100).
  * @returns {Promise<void>} A promise that resolves when flashing is complete, or rejects on error.
  */
-function flashImage(imagePath, targetDevicePath, onProgress) {
+function flashImage(imagePath, targetDevicePath, totalSizeInBytes, onProgress) {
     return new Promise((resolve, reject) => {
+        let lastProgress = 0; // Initialize lastProgress
         const command = 'dd';
         const args = [
             `if=${imagePath}`,
@@ -118,52 +126,58 @@ function flashImage(imagePath, targetDevicePath, onProgress) {
 
         const ddProcess = spawn(command, args);
 
-        let lastProgress = 0;
-        const progressRegex = /(\d+)\s*bytes.*copied,\s*([0-9.]+)\s*s,\s*([0-9.]+\s*\wB\/s)/;
+        // const progressRegex = /(\d+)\s*bytes.*copied,\s*([0-9.]+)\s*s,\s*([0-9.]+\s*\wB\/s)/;
         // Example dd output on stderr:
         // 123456789 bytes (123 MB, 118 MiB) copied, 10.123 s, 12.2 MB/s
 
         ddProcess.stderr.on('data', (data) => {
             const output = data.toString();
-            console.debug(`dd stderr: ${output}`); // Log raw stderr for debugging
+            // console.debug(`dd stderr: ${output}`); // Log raw stderr for debugging
 
-            // Try to parse progress. dd's progress format can vary.
-            // This regex is a basic attempt.
-            // A more robust solution might involve getting total image size and bytes written.
-            // For status=progress, it continuously overwrites the line.
-            // We capture the last full line of stats.
-            const lines = output.trim().split('\r');
+            const lines = output.trim().split('\r'); // dd status=progress often uses \r
             const lastLine = lines[lines.length - 1];
-            const match = lastLine.match(progressRegex);
 
-            if (match) {
-                // const bytesCopied = parseInt(match[1], 10);
-                // const timeTaken = parseFloat(match[2]);
-                const speed = match[3];
+            let currentProgressPercentage = lastProgress;
+            const bytesMatch = lastLine.match(/(\d+)\s*bytes/);
 
-                // Estimating percentage requires total image size.
-                // For now, we can't easily get that from dd's status=progress alone in a simple way.
-                // A placeholder for progress: if dd is outputting, it's > 0 and < 100 until done.
-                // A more advanced progress would require 'stat -c%s imagePath' to get total size first.
-                // For simplicity in this step, we'll send speed and a rough "activity" indicator.
-                // A truly accurate percentage would require knowing total image size.
-                // Let's simulate a rough percentage based on time/activity for now.
-                // This is NOT accurate but provides some feedback.
-                if (lastProgress < 99) lastProgress += 1; // Simplified progress update
+            if (bytesMatch && totalSizeInBytes > 0) {
+                const bytesCopied = parseInt(bytesMatch[1], 10);
+                currentProgressPercentage = Math.min(Math.round((bytesCopied / totalSizeInBytes) * 100), 100);
 
-                if (onProgress && typeof onProgress === 'function') {
-                    onProgress({
-                        progress: lastProgress, // Placeholder - not actual percentage
-                        speed: speed,
-                        rawLine: lastLine // For renderer to potentially parse more accurately
-                    });
+                if (currentProgressPercentage > lastProgress || (lastProgress === 0 && currentProgressPercentage === 0) ) {
+                     lastProgress = currentProgressPercentage;
+                } else {
+                     currentProgressPercentage = lastProgress; // don't go backwards
                 }
+                if (bytesCopied >= totalSizeInBytes) { // Ensure 100% if bytes copied meet/exceed total
+                    currentProgressPercentage = 100;
+                    lastProgress = 100;
+                }
+            } else if (lastLine.toLowerCase().includes('copied') && lastProgress < 99 && !bytesMatch) {
+                // Fallback for very brief dd outputs that might not have full stats before finishing
+                // or if initial parsing fails but we see "copied"
+                lastProgress = Math.min(lastProgress + 1, 99); // very rough increment, avoid hitting 100 prematurely
+                currentProgressPercentage = lastProgress;
+            }
+
+            const speedMatch = lastLine.match(/([0-9.]+\s*\wB\/s)/);
+            let speed = 'N/A';
+            if (speedMatch && speedMatch[1]) {
+                speed = speedMatch[1];
+            }
+
+            if (onProgress && typeof onProgress === 'function') {
+                onProgress({
+                    progress: currentProgressPercentage,
+                    speed: speed,
+                    rawLine: lastLine
+                });
             }
         });
 
         ddProcess.on('error', (err) => {
             console.error(`Failed to start dd process: ${err.message}`);
-            reject(new Error(`Failed to start dd process: ${err.message}`));
+            reject(new Error(`Failed to start flashing process (dd). Ensure 'dd' is installed and you have necessary permissions. Details: ${err.message}`));
         });
 
         ddProcess.on('close', (code) => {
@@ -175,7 +189,7 @@ function flashImage(imagePath, targetDevicePath, onProgress) {
                 resolve();
             } else {
                 console.error(`dd process exited with code ${code}`);
-                reject(new Error(`dd process exited with code ${code}. Check permissions and paths.`));
+                reject(new Error(`Flashing process (dd) failed with exit code ${code}. This may be due to insufficient permissions, incorrect device path, an issue with the image file, or the device being disconnected prematurely. Check logs for more details.`));
             }
         });
     });
@@ -188,14 +202,71 @@ module.exports = {
     flashImage,       // Keep existing
     extendPartition,  // Keep existing
     safeEject,        // Add new
+    getImageSize,     // Add getImageSize
+    checkAllRequiredCommands, // Add checkAllRequiredCommands
 };
 
 /**
+ * Retrieves the size of an image file.
+ * @param {string} imagePath - The path to the image file.
+ * @returns {Promise<number>} A promise that resolves with the file size in bytes.
+ * @throws {Error} If the file size cannot be determined (e.g., file not found, permissions).
+ */
+async function getImageSize(imagePath) {
+    try {
+        const stats = await fs.stat(imagePath);
+        return stats.size; // size in bytes
+    } catch (error) {
+        console.error(`Error getting file size for ${imagePath}:`, error);
+        throw new Error(`Could not get image file size for '${imagePath}'. Please ensure the file exists and is accessible. Details: ${error.message}`);
+    }
+}
+
+/**
+ * Checks if a given command-line utility exists and is executable.
+ * Uses 'command -v' which is a POSIX standard way to find a command.
+ * @param {string} command - The name of the command to check (e.g., "dd", "lsblk").
+ * @returns {Promise<boolean>} True if the command exists, false otherwise.
+ */
+async function checkCommandExists(command) {
+    try {
+        // Using 'command -v' for better POSIX compatibility over 'which'
+        await execFileAsync('command', ['-v', command]);
+        return true;
+    } catch (error) {
+        console.warn(`Command check failed for '${command}': ${error.message}`);
+        return false;
+    }
+}
+
+/**
+ * Checks for the existence of a list of required command-line utilities.
+ * @param {Array<string>} commands - An array of command names to check.
+ * @returns {Promise<Array<string>>} A promise that resolves to an array of missing command names.
+ * If all commands exist, the array will be empty.
+ */
+async function checkAllRequiredCommands(commands) {
+    const missingCommands = [];
+    for (const cmd of commands) {
+        if (!await checkCommandExists(cmd)) {
+            missingCommands.push(cmd);
+        }
+    }
+    return missingCommands;
+}
+
+/**
  * Extends a specified partition on a target device to fill 100% of the available space.
- * Assumes the partition to extend is the 3rd one.
- * @param {string} targetDevicePath Absolute path to the target device (e.g., /dev/sda).
- * @param {number} partitionNumber The number of the partition to extend (e.g., 3).
- * @returns {Promise<void>} A promise that resolves when extension is complete, or rejects on error.
+ * This involves several steps:
+ * 1. Attempt to unmount the partition (best-effort, as parted might require this).
+ * 2. Use 'parted ---script <device> resizepart <partition_number> 100%' to extend the partition boundary.
+ * 3. Use 'resize2fs <partition_device_path>' to resize the ext2/3/4 filesystem within the partition.
+ * Note: This function assumes the filesystem is ext2/3/4. Other filesystem types would require different resize tools.
+ * @param {string} targetDevicePath - Absolute path to the target disk device (e.g., /dev/sda).
+ * @param {number} [partitionNumber=3] - The number of the partition to extend. Defaults to 3.
+ * @returns {Promise<void>} A promise that resolves when extension is complete.
+ * @throws {Error} If any step of the process fails, including inconsistent paths, parted errors, or resize2fs errors.
+ *                 The error message will attempt to provide context and details from stderr where possible.
  */
 async function extendPartition(targetDevicePath, partitionNumber = 3) {
     // parted requires the partition not to be mounted for resizing the partition itself.
@@ -270,7 +341,7 @@ async function extendPartition(targetDevicePath, partitionNumber = 3) {
             console.error(`resize2fs stderr: ${resizefsError.stderr}`);
             // This is a common point of failure if the filesystem type is wrong or other conditions aren't met.
             // We'll throw an error here as extending the partition without resizing the FS is often not useful.
-            throw new Error(`Parted resized partition, but resize2fs failed for ${partitionDevicePath}: ${resizefsError.message}. Filesystem may be inconsistent.`);
+            throw new Error(`Partition was resized, but the filesystem could not be extended automatically. resize2fs failed for ${partitionDevicePath} with message: ${resizefsError.message}. You may need to run resize2fs manually (e.g., sudo resize2fs ${partitionDevicePath}). Stderr: ${resizefsError.stderr || 'N/A'}`);
         }
 
         return Promise.resolve();
@@ -282,9 +353,13 @@ async function extendPartition(targetDevicePath, partitionNumber = 3) {
 }
 
 /**
- * Safely ejects a target disk by unmounting all its partitions and then powering it off.
- * @param {string} targetDevicePath Absolute path to the target disk device (e.g., /dev/sda).
- * @returns {Promise<void>} A promise that resolves when ejection is complete, or rejects on error.
+ * Safely ejects a target disk by attempting to unmount all its partitions
+ * and then powering off the disk using udisksctl.
+ * This function is designed for Linux environments where udisksctl is available.
+ * @param {string} targetDevicePath - Absolute path to the target disk device (e.g., /dev/sda).
+ * @returns {Promise<void>} A promise that resolves when ejection is complete.
+ * @throws {Error} If listing partitions, unmounting, or powering off fails.
+ *                 The error will include details from stderr if available.
  */
 async function safeEject(targetDevicePath) {
     console.log(`Starting safe eject for ${targetDevicePath}`);

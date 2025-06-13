@@ -15,17 +15,18 @@
     </header>
 
     <main id="app-content">
-        <div id="image-selection-view">
+        <div id="global-message-container" class="message-container" style="display: none;"></div>
+        <section id="image-selection-view">
             <h2>Select Image File</h2>
             <p>Please select the RAW image file you want to flash to the SSD.</p>
             <button id="select-image-button">Choose Image File...</button>
             <div id="selected-image-path-container" style="margin-top: 15px; min-height: 20px;">
                 <p><strong>Selected file:</strong> <span id="selected-image-path-text">None</span></p>
             </div>
-        </div>
+        </section>
 
         <!-- Add new view for device selection -->
-        <div id="device-selection-view" style="display: none; width: 100%;"> <!-- Initially hidden -->
+        <section id="device-selection-view" style="display: none; width: 100%;"> <!-- Initially hidden -->
             <h2>Select Target Device</h2>
             <p>Choose the SSD you want to flash. <strong style="color: red;">WARNING: ALL DATA ON THE SELECTED DEVICE WILL BE ERASED.</strong></p>
             <button id="refresh-devices-button">Refresh Device List</button>
@@ -36,14 +37,14 @@
             <div id="selected-device-info-container" style="margin-top: 15px;">
                 <p><strong>Selected target:</strong> <span id="selected-device-info-text">None</span></p>
             </div>
-        </div>
+        </section>
 
         <!-- Flashing controls and progress view (initially hidden) -->
-        <div id="flashing-controls-view" style="display: none; margin-top: 20px; text-align: center;">
+        <section id="flashing-controls-view" style="display: none; margin-top: 20px; text-align: center;">
             <button id="start-flashing-button" style="padding: 12px 25px; font-size: 18px;">Start Flashing</button>
-        </div>
+        </section>
 
-        <div id="flashing-progress-view" style="display: none; width: 80%; margin-top: 20px; text-align: center;">
+        <section id="flashing-progress-view" style="display: none; width: 80%; margin-top: 20px; text-align: center;">
             <h2>Flashing in Progress...</h2>
             <p>Please do not close the application or remove the target device.</p>
             <div id="progress-bar-container" style="width: 100%; background-color: #e0e0e0; border-radius: 5px; margin-top: 10px;">
@@ -53,12 +54,12 @@
             </div>
             <p id="progress-speed-text" style="margin-top: 10px;">Speed: -</p>
             <p id="progress-raw-output" style="margin-top: 5px; font-size: 0.8em; color: #555; max-height: 100px; overflow-y: auto; background: #f9f9f9; border: 1px solid #eee; padding: 5px;"></p>
-            <button id="cancel-flashing-button" style="margin-top: 20px; background-color: #cc0000; color: white;">Cancel Flashing (Not Implemented)</button>
-        </div>
+            <button id="cancel-flashing-button" style="margin-top: 20px; background-color: #cc0000; color: white;" disabled title="Cancel functionality is not yet implemented.">Cancel Flashing (Not Implemented)</button>
+        </section>
     </main>
 
     <footer id="app-footer">
-        <!-- Footer content can go here -->
+        <p>&copy; 2024 YOM. App Version 1.0.0</p>
     </footer>
     <script src="./renderer.js"></script>
 </body>
