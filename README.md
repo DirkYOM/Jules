@@ -8,7 +8,7 @@ This application is primarily designed for Linux systems and relies on common Li
 
 ## Prerequisites
 
-Before using this application, please ensure the following command-line utilities are installed on your system and are accessible via your system's `PATH`:
+Before using this application (whether running from source or a packaged version), please ensure the following command-line utilities are installed on your system and are accessible via your system's `PATH`:
 
 *   **`dd`**: Used for the low-level disk write operation during image flashing.
 *   **`lsblk`**: Used to list available block devices and gather information about them (e.g., size, model, OS drive detection).
@@ -18,44 +18,72 @@ Before using this application, please ensure the following command-line utilitie
 
 The application performs a check for these commands at startup. If any are missing, it will display a warning dialog. Without these utilities, the application will not function correctly.
 
-### Root/Sudo Privileges
+### Root/Sudo Privileges for Application Use
 
 **Crucial:** This application interacts directly with block devices (e.g., `/dev/sda`, `/dev/nvme0n1`) for flashing and partitioning. These operations require **root (sudo) privileges**.
 
-You will need to run the YOM SSD Flasher application with `sudo`. For example:
-*   If running from source in a development environment: `sudo npm start`
-*   If running a packaged executable: `sudo ./yom-flasher-app` (or the equivalent for your executable name).
+You will need to run the YOM SSD Flasher application (packaged executable or via `npm start`) with `sudo`. For example:
+*   `sudo ./yom-flasher-app` (or the equivalent for your executable name).
+*   `sudo npm start` (when running from source, see "Development Setup" below).
 
 Failure to run with sufficient privileges will cause the underlying `dd`, `parted`, etc., commands to fail, likely resulting in errors related to permissions or device access.
 
-## Usage
+## Development Setup and Running from Source
 
-1.  **Installation (Development):**
-    *   Clone the repository (if you haven't already).
-    *   Install dependencies: `npm install`
-2.  **Running the Application:**
-    *   As mentioned in "Prerequisites", run with `sudo`:
-        ```bash
-        sudo npm start
-        ```
-    *   (If you have a packaged version, run the executable with `sudo`.)
-3.  **Application Flow:**
-    *   **Select Image:** Click the "Select Firmware File" (or similar) button to open a file dialog. Choose the raw disk image file (`.img`, `.iso`, `.bin`, etc.) you wish to flash. The selected path will be displayed.
-    *   **Select Target Device:**
-        *   The application will attempt to list available block devices. Click "Refresh List" if needed.
-        *   Devices are listed with their path, model, and size.
-        *   **Safety Feature:** The application attempts to identify and visually mark your current operating system drive (e.g., "(OS Drive)"). **It is strongly recommended NOT to select your OS drive.**
-        *   Carefully select the target device from the list. The selected device info will be displayed.
-    *   **Start Flashing:** Once both an image and a target device are selected, the "Start Flashing" button (or similar) will become available.
-        *   Clicking this button will prompt you with a **critical confirmation dialog** summarizing your selections and warning about data erasure.
-        *   You must explicitly confirm to proceed.
-    *   **Flashing Progress:** A progress bar will show the status of the flashing operation, including speed and percentage completion. Detailed output from `dd` is also shown.
-    *   **Post-Flashing Operations:**
-        *   After successful flashing, the application will automatically attempt to:
-            1.  **Extend Partition:** Resize the last partition (assumed to be the main data partition, typically partition 3 for YOM images) on the target device to use all available space.
-            2.  **Safe Eject:** Unmount all partitions on the target device and then power it off.
-        *   Progress and status for these operations will also be displayed.
-    *   **Completion:** A success message will be shown upon successful completion of all steps. The UI will then reset for a new operation.
+### Cloning the Repository
+To get started with development, clone the repository to your local machine:
+```bash
+git clone https://github.com/your-username/yom-flasher-app.git
+cd yom-flasher-app
+```
+*(Replace `https://github.com/your-username/yom-flasher-app.git` with the actual URL of this repository.)*
+
+### Installing Dependencies
+Navigate to the cloned directory and install the necessary Node.js dependencies:
+```bash
+npm install
+```
+
+### Running the Application (Development)
+To run the application in a development environment (with live reload and DevTools access), use:
+```bash
+npm start
+```
+
+**Important for Flashing Operations:** As detailed in the "Prerequisites" section, the core functionalities of this application (flashing, partitioning, ejecting) require root/sudo privileges. Therefore, to test these features properly during development, you must run the start command with `sudo`:
+```bash
+sudo npm start
+```
+Without `sudo`, the application will run, but attempts to flash, extend partitions, or eject devices will likely fail due to permission errors.
+
+### Building the Application
+This project uses Electron Forge to build distributable packages. To create a package for your current platform (e.g., Linux), you can use:
+```bash
+npm run make
+```
+This command will generate installable files (e.g., a `.deb` package, an executable inside a `zip` or `tar.gz` archive) in the `out` directory within your project. Refer to the Electron Forge documentation for more details on configuring different build targets (e.g., for other operating systems or package formats).
+
+After building, you will typically find the executable or installer in a subdirectory like `out/make/deb/x64/` for a Debian package or `out/make/zip/linux/x64/` for a zipped executable. Remember to run the packaged application with `sudo` for it to function correctly.
+
+## Application Workflow (User Guide)
+
+1.  **Launch the Application:** Start the YOM SSD Flasher with `sudo` as described in "Prerequisites" or "Running the Application (Development)".
+2.  **Select Image:** Click the "Select Firmware File" (or similar) button to open a file dialog. Choose the raw disk image file (`.img`, `.iso`, `.bin`, etc.) you wish to flash. The selected path will be displayed.
+3.  **Select Target Device:**
+    *   The application will attempt to list available block devices. Click "Refresh List" if needed.
+    *   Devices are listed with their path, model, and size.
+    *   **Safety Feature:** The application attempts to identify and visually mark your current operating system drive (e.g., "(OS Drive)"). **It is strongly recommended NOT to select your OS drive.**
+    *   Carefully select the target device from the list. The selected device info will be displayed.
+4.  **Start Flashing:** Once both an image and a target device are selected, the "Start Flashing" button (or similar) will become available.
+    *   Clicking this button will prompt you with a **critical confirmation dialog** summarizing your selections and warning about data erasure.
+    *   You must explicitly confirm to proceed.
+5.  **Flashing Progress:** A progress bar will show the status of the flashing operation, including speed and percentage completion. Detailed output from `dd` is also shown.
+6.  **Post-Flashing Operations:**
+    *   After successful flashing, the application will automatically attempt to:
+        1.  **Extend Partition:** Resize the last partition (assumed to be the main data partition, typically partition 3 for YOM images) on the target device to use all available space.
+        2.  **Safe Eject:** Unmount all partitions on the target device and then power it off.
+    *   Progress and status for these operations will also be displayed.
+7.  **Completion:** A success message will be shown upon successful completion of all steps. The UI will then reset for a new operation.
 
 ## WARNINGS - READ CAREFULLY!
 
