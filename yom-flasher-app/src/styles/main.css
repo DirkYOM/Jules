@@ -166,7 +166,7 @@ section#flashing-progress-view {
     /* flex-direction: column; /* Already on #image-selection-view etc. */
     /* align-items: center; /* Already on #image-selection-view etc. */
     /* text-align: center; /* Already on #image-selection-view etc. */
-
+    
     background-color: #fff; /* Card-like appearance */
     padding: 20px; /* Padding within each section */
     margin-bottom: 20px; /* Separation */

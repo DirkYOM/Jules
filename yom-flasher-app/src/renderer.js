@@ -210,7 +210,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         if (progressSpeedText) progressSpeedText.textContent = 'Speed: -';
         if (progressRawOutput) progressRawOutput.textContent = '';
-
+        
         // Ensure flashing progress view is hidden if not already by showView
         if (flashingProgressView) flashingProgressView.style.display = 'none';
 

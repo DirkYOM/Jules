@@ -47,7 +47,7 @@ app.whenReady().then(async () => { // Make the callback async
   } else {
     console.error('fix-path was loaded, but its structure is not as expected (not a function, no .default function). PATH environment variable might not be corrected. Type of fixPath:', typeof fixPath);
   }
-
+  
   const mainWindow = createWindow(); // Create the main application window.
 
   // --- Application Startup Checks ---

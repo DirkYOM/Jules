@@ -161,7 +161,7 @@ function flashImage(imagePath, targetDevicePath, totalSizeInBytes, onProgress) {
             if (bytesMatch && totalSizeInBytes > 0) {
                 const bytesCopied = parseInt(bytesMatch[1], 10);
                 currentProgressPercentage = Math.min(Math.round((bytesCopied / totalSizeInBytes) * 100), 100);
-
+                
                 if (currentProgressPercentage > lastProgress || (lastProgress === 0 && currentProgressPercentage === 0) ) {
                      lastProgress = currentProgressPercentage;
                 } else {
@@ -483,7 +483,7 @@ async function safeEject(targetDevicePath) {
         for (const partPath of partitionsToUnmount) {
             try {
                 console.log(`Attempting to unmount ${partPath}...`);
-                const udisksctlPathForEject = commandPathCache['udisksctl'];
+                const udisksctlPathForEject = commandPathCache['udisksctl']; 
                 if (!udisksctlPathForEject) throw new Error("'udisksctl' command path not found for unmount in eject.");
                 await execFileAsync(udisksctlPathForEject, ['unmount', '-b', partPath]); // New
                 console.log(`Successfully unmounted ${partPath}.`);
