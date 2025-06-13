@@ -1,8 +1,9 @@
 const { app, BrowserWindow, ipcMain, dialog } = require('electron'); // MODIFIED: Added ipcMain, dialog
 const path = require('node:path'); // Note: path was 'path' before, ensure 'node:path' is okay or use 'path'
+const fixPath = require('fix-path'); // To ensure PATH is correctly set for child processes
 // const systemUtils = require('./systemUtils'); // Old way
 const { listBlockDevices, flashImage, extendPartition, safeEject, getImageSize, checkAllRequiredCommands } = require('./systemUtils'); // New: Destructured import + checkAllRequiredCommands
-const Store = require('electron-store'); // For persisting simple key-value data like last opened directory
+const Store = require('electron-store').default; // For persisting simple key-value data like last opened directory
 
 // Initialize electron-store. User data is typically stored in app.getPath('userData').
 const store = new Store();
@@ -36,6 +37,7 @@ const createWindow = () => {
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
 app.whenReady().then(async () => { // Make the callback async
+  fixPath(); // Attempt to fix PATH issues, especially on macOS when app is launched from GUI
   const mainWindow = createWindow(); // Create the main application window.
 
   // --- Application Startup Checks ---
