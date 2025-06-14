@@ -1,9 +1,13 @@
 const { app, BrowserWindow, ipcMain, dialog } = require('electron'); // MODIFIED: Added ipcMain, dialog
 const path = require('node:path'); // Note: path was 'path' before, ensure 'node:path' is okay or use 'path'
 const fixPath = require('fix-path'); // To ensure PATH is correctly set for child processes
+const sudoPrompt = require('sudo-prompt');
+const net = require('net');
 // const systemUtils = require('./systemUtils'); // Old way
 const { listBlockDevices, flashImage, extendPartition, safeEject, getImageSize, checkAllRequiredCommands } = require('./systemUtils'); // New: Destructured import + checkAllRequiredCommands
 const Store = require('electron-store').default; // For persisting simple key-value data like last opened directory
+
+const SOCKET_PATH = '/tmp/yom-flasher-helper.sock';
 
 // Initialize electron-store. User data is typically stored in app.getPath('userData').
 const store = new Store();
@@ -47,6 +51,64 @@ app.whenReady().then(async () => { // Make the callback async
   } else {
     console.error('fix-path was loaded, but its structure is not as expected (not a function, no .default function). PATH environment variable might not be corrected. Type of fixPath:', typeof fixPath);
   }
+
+  // Launch the root helper script
+  const helperScriptPath = path.join(__dirname, 'root-helper.js');
+  const command = `node "${helperScriptPath}"`;
+  const options = { 
+    name: 'Yom Flasher Background Service',
+    env: {
+      'DISPLAY': process.env.DISPLAY,
+      ...(process.env.XAUTHORITY && {'XAUTHORITY': process.env.XAUTHORITY})
+    }
+  };
+
+  await new Promise((resolve, reject) => {
+    sudoPrompt.exec(command, options, (error, stdout, stderr) => {
+      if (error) {
+        console.error('Failed to start root helper:', error);
+        console.error('sudo-prompt stdout:', stdout);
+        console.error('sudo-prompt stderr:', stderr);
+        dialog.showErrorBox('Error', 'Failed to start background service with root privileges. The application will now quit.');
+        app.quit();
+        reject(error); // Reject the promise to stop further execution in whenReady
+        return;
+      }
+      console.log('Root helper script launched by sudo-prompt.');
+      // Check stdout for the listening message
+      // A more robust way would be for the helper to write to its stdout only that message,
+      // or use another IPC mechanism for readiness.
+      if (stdout && stdout.includes('Root Helper: Server listening on')) {
+        console.log('Detected helper is listening from stdout.');
+        connectToHelper();
+        resolve(); // Resolve the promise
+      } else if (stderr && !stderr.includes("XDG_RUNTIME_DIR not set")) { 
+        // Ignore XDG_RUNTIME_DIR warning if it's the only thing in stderr
+        console.error('Root helper script stderr on launch (and not just XDG warning):', stderr);
+        // It's possible the script started but had other errors.
+        // Or it might have started successfully and the listening message is in stderr (less likely).
+        // For now, if there's significant stderr, treat as potential failure.
+        dialog.showErrorBox('Error', 'Background service started with errors or did not confirm listening. The application will now quit.');
+        app.quit();
+        reject(new Error('Helper script stderr or missing listening confirmation.'));
+        return;
+      } else {
+        // If stdout is empty or doesn't contain the message, and stderr is empty/ignorable
+        // This case might mean sudo-prompt worked, but the script exited too quickly or didn't output.
+        console.warn('Root helper stdout did not contain listening confirmation or was empty. stderr:', stderr);
+        // Trying to connect anyway, or wait a bit. For now, let's try connecting after a short delay.
+        // This is a fallback.
+        setTimeout(() => {
+            console.log('Attempting to connect to helper after a short delay (fallback).');
+            connectToHelper();
+            resolve(); // Resolve, but with a warning/potential instability
+        }, 1000); // 1 second delay
+      }
+    });
+  }).catch(err => {
+    console.error("Promise rejected after sudoPrompt.exec, app should have quit or is quitting.", err);
+    return; // Ensure no further execution in whenReady if promise rejected
+  });
   
   const mainWindow = createWindow(); // Create the main application window.
 
@@ -211,3 +273,39 @@ app.on('window-all-closed', () => {
 
 // In this file you can include the rest of your app's specific main process
 // code. You can also put them in separate files and import them here.
+
+// IPC Client Connection Logic
+let helperClient = null; // Keep a reference to the client
+
+function connectToHelper() {
+  console.log('Attempting to connect to root helper at:', SOCKET_PATH);
+  helperClient = net.createConnection({ path: SOCKET_PATH });
+
+  helperClient.on('connect', () => {
+    console.log('Main App: Connected to root helper.');
+    helperClient.write('Hello from main app');
+    // Make client available globally or through a module after connection
+    global.helperClient = helperClient; 
+  });
+
+  helperClient.on('data', (data) => {
+    console.log('Main App: Received from helper:', data.toString());
+  });
+
+  helperClient.on('error', (err) => {
+    console.error('Main App: Connection to root helper failed:', err.message);
+    if (!app.isQuitting()) { // Check if we are already trying to quit
+        dialog.showErrorBox('Error', `Could not connect to background service: ${err.message}. The application may not function correctly or will quit.`);
+        // Optionally, quit the app or run in a degraded mode
+        // app.quit(); 
+    }
+    helperClient = null; // Reset client
+    global.helperClient = null;
+  });
+
+  helperClient.on('close', () => {
+    console.log('Main App: Connection to root helper closed.');
+    helperClient = null; // Reset client
+    global.helperClient = null;
+  });
+}
