@@ -54,7 +54,7 @@ app.whenReady().then(async () => { // Make the callback async
   // Check for required command-line utilities critical for the app's functionality.
   // If any are missing, an error dialog is shown to the user.
   // The application will still load, but core operations will likely fail.
-  const requiredCommands = ['dd', 'lsblk', 'parted', 'resize2fs', 'udisksctl'];
+  const requiredCommands = ['dd', 'lsblk', 'parted', 'resize2fs', 'udisksctl', 'sgdisk', 'e2fsck'];
   const missingCommands = await checkAllRequiredCommands(requiredCommands);
   if (missingCommands.length > 0) {
       dialog.showErrorBox(

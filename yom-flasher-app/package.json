@@ -19,7 +19,9 @@
   "license": "MIT",
   "dependencies": {
     "electron-squirrel-startup": "^1.0.1",
-    "electron-store": "^10.0.1"
+    "electron-store": "^10.0.1",
+    "fix-path": "^4.0.0",
+    "sudo-prompt": "^9.2.1"
   },
   "devDependencies": {
     "@electron-forge/cli": "^7.8.1",

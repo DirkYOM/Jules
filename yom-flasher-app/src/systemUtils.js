@@ -12,6 +12,9 @@ const COMMON_COMMAND_LOCATIONS = {
     'parted': ['/sbin/parted', '/usr/sbin/parted'],
     'resize2fs': ['/sbin/resize2fs', '/usr/sbin/resize2fs'],
     'udisksctl': ['/bin/udisksctl', '/usr/bin/udisksctl'],
+    'sgdisk': ['/sbin/sgdisk', '/usr/sbin/sgdisk', '/usr/bin/sgdisk'],
+    'e2fsck': ['/sbin/e2fsck', '/usr/sbin/e2fsck'],
+    'partprobe': ['/sbin/partprobe', '/usr/sbin/partprobe'],
     'command': ['/bin/command', '/usr/bin/command'] // For 'command -v' itself
 };
 
@@ -328,8 +331,9 @@ async function checkAllRequiredCommands(commandNames) {
  * Extends a specified partition on a target device to fill 100% of the available space.
  * This involves several steps:
  * 1. Attempt to unmount the partition (best-effort, as parted might require this).
- * 2. Use 'parted ---script <device> resizepart <partition_number> 100%' to extend the partition boundary.
- * 3. Use 'resize2fs <partition_device_path>' to resize the ext2/3/4 filesystem within the partition.
+ * 2. Fix the GPT partition table if needed.
+ * 3. Use 'parted --script <device> resizepart <partition_number> 100%' to extend the partition boundary.
+ * 4. Use 'resize2fs <partition_device_path>' to resize the ext2/3/4 filesystem within the partition.
  * Note: This function assumes the filesystem is ext2/3/4. Other filesystem types would require different resize tools.
  * @param {string} targetDevicePath - Absolute path to the target disk device (e.g., /dev/sda).
  * @param {number} [partitionNumber=3] - The number of the partition to extend. Defaults to 3.
@@ -371,20 +375,74 @@ async function extendPartition(targetDevicePath, partitionNumber = 3) {
         console.warn(`Could not unmount ${partitionDevicePath} (may be normal if not mounted): ${error.message}`);
     }
 
-    const command = 'parted';
-    // ---script: non-interactive
-    // <device> resizepart <partition_number> <end_position_100%>
+    const partedPath = commandPathCache['parted'];
+    if (!partedPath) throw new Error("'parted' command path not found.");
+
+    // First, fix the GPT if needed using a non-interactive approach
+    console.log(`Checking if GPT needs fixing for ${targetDevicePath}...`);
+    try {
+        // Run parted print to check for GPT issues
+        const { stdout: checkStdout, stderr: checkStderr } = await execFileAsync(partedPath, ['--script', targetDevicePath, 'print']);
+        
+        // If there's a GPT warning, we need to fix it using sgdisk
+        if (checkStderr && checkStderr.includes('you can fix the GPT')) {
+            console.log('GPT needs fixing. Using sgdisk to fix...');
+            
+            // Try using sgdisk - move backup GPT to end of disk
+            try {
+                const sgdiskPath = commandPathCache['sgdisk'];
+                if (!sgdiskPath) {
+                    // Try to find sgdisk manually if not in cache
+                    const sgdiskFound = await checkCommandExists('sgdisk');
+                    if (sgdiskFound) {
+                        commandPathCache['sgdisk'] = sgdiskFound;
+                    } else {
+                        throw new Error("'sgdisk' command not found.");
+                    }
+                }
+                
+                console.log(`Executing sgdisk: ${commandPathCache['sgdisk']} -e ${targetDevicePath}`);
+                await execFileAsync(commandPathCache['sgdisk'], ['-e', targetDevicePath]);
+                console.log('GPT fixed using sgdisk');
+                
+                // Refresh the partition table to inform the kernel
+                try {
+                    const partprobePath = commandPathCache['partprobe'] || await checkCommandExists('partprobe');
+                    if (partprobePath) {
+                        commandPathCache['partprobe'] = partprobePath;
+                        await execFileAsync(partprobePath, [targetDevicePath]);
+                        console.log('Partition table refreshed with partprobe');
+                    }
+                } catch (partprobeError) {
+                    console.warn('partprobe failed, continuing anyway:', partprobeError.message);
+                }
+            } catch (sgdiskError) {
+                console.warn(`sgdisk failed: ${sgdiskError.message}. Trying alternative approach...`);
+                
+                // Alternative: use parted unit s print to force GPT update
+                try {
+                    await execFileAsync(partedPath, ['--script', targetDevicePath, 'unit', 's', 'print']);
+                    console.log('GPT table refreshed using parted');
+                } catch (unitError) {
+                    console.warn('Could not refresh GPT table, proceeding anyway');
+                }
+            }
+        } else {
+            console.log('No GPT issues detected.');
+        }
+    } catch (error) {
+        console.warn(`GPT check/fix failed (may be normal): ${error.message}`);
+    }
+
+    // Then resize the partition
     const args = [
-        '---script',
+        '--script',
         targetDevicePath,
         'resizepart',
         String(partitionNumber),
         '100%' // Extend to fill the disk
     ];
 
-    // const command = 'parted'; // Old
-    const partedPath = commandPathCache['parted'];
-    if (!partedPath) throw new Error("'parted' command path not found.");
     console.log(`Executing parted: ${partedPath} ${args.join(' ')}`); // New
 
     try {
@@ -402,23 +460,37 @@ async function extendPartition(targetDevicePath, partitionNumber = 3) {
         // Attempt resize2fs
         console.log(`Attempting to resize filesystem on ${partitionDevicePath} using resize2fs...`);
         try {
-            // Ensure it's mounted first for resize2fs to work on some systems, or unmounted on others.
-            // resize2fs behavior with mounted filesystems can vary. Often it needs to be unmounted or mounted read-only.
-            // For simplicity, we'll try it. If it needs unmounting, the previous unmount might have helped.
-            // If it needs mounting, that's more complex here.
-            // Let's assume for now it works on an unmounted partition or can handle a mounted one if needed.
+            // First run e2fsck to check filesystem integrity
+            const e2fsckPath = commandPathCache['e2fsck'];
+            if (!e2fsckPath) {
+                // Try to find e2fsck manually if not in cache
+                const e2fsckFound = await checkCommandExists('e2fsck');
+                if (e2fsckFound) {
+                    commandPathCache['e2fsck'] = e2fsckFound;
+                } else {
+                    throw new Error("'e2fsck' command not found.");
+                }
+            }
+            
+            console.log(`Running filesystem check with e2fsck on ${partitionDevicePath}...`);
+            const { stdout: e2fsck_stdout, stderr: e2fsck_stderr } = await execFileAsync(commandPathCache['e2fsck'], ['-f', '-y', partitionDevicePath]);
+            if (e2fsck_stdout) console.log(`e2fsck stdout: ${e2fsck_stdout}`);
+            if (e2fsck_stderr) console.warn(`e2fsck stderr: ${e2fsck_stderr}`);
+            console.log(`Filesystem check completed on ${partitionDevicePath}.`);
+            
+            // Now run resize2fs
             const resize2fsPath = commandPathCache['resize2fs'];
             if (!resize2fsPath) throw new Error("'resize2fs' command path not found.");
-            const { stdout: resizefs_stdout, stderr: resizefs_stderr } = await execFileAsync(resize2fsPath, [partitionDevicePath]); // New
+            const { stdout: resizefs_stdout, stderr: resizefs_stderr } = await execFileAsync(resize2fsPath, [partitionDevicePath]);
             if (resizefs_stdout) console.log(`resize2fs stdout: ${resizefs_stdout}`);
             if (resizefs_stderr) console.warn(`resize2fs stderr: ${resizefs_stderr}`);
             console.log(`Filesystem on ${partitionDevicePath} successfully resized.`);
         } catch (resizefsError) {
-            console.error(`Error during resize2fs for ${partitionDevicePath}: ${resizefsError.message}`);
-            console.error(`resize2fs stderr: ${resizefsError.stderr}`);
+            console.error(`Error during filesystem operations for ${partitionDevicePath}: ${resizefsError.message}`);
+            console.error(`Filesystem error stderr: ${resizefsError.stderr}`);
             // This is a common point of failure if the filesystem type is wrong or other conditions aren't met.
             // We'll throw an error here as extending the partition without resizing the FS is often not useful.
-            throw new Error(`Partition was resized, but the filesystem could not be extended automatically. resize2fs failed for ${partitionDevicePath} with message: ${resizefsError.message}. You may need to run resize2fs manually (e.g., sudo resize2fs ${partitionDevicePath}). Stderr: ${resizefsError.stderr || 'N/A'}`);
+            throw new Error(`Partition was resized, but the filesystem could not be extended automatically. Filesystem operations failed for ${partitionDevicePath} with message: ${resizefsError.message}. You may need to run e2fsck and resize2fs manually (e.g., sudo e2fsck -f ${partitionDevicePath} && sudo resize2fs ${partitionDevicePath}). Stderr: ${resizefsError.stderr || 'N/A'}`);
         }
 
         return Promise.resolve();

@@ -24,7 +24,7 @@ echo "Attempting to extend the last partition on ${TARGET_DEVICE}..."
 
 # Get partition information
 echo "Current partition table:"
-if ! sudo parted ---script "${TARGET_DEVICE}" print; then
+if ! sudo parted --script "${TARGET_DEVICE}" print; then
   echo "Error: Failed to print partition table for ${TARGET_DEVICE}."
   exit 1
 fi
@@ -32,7 +32,7 @@ fi
 # Identify the number of the last partition
 # This is a common way to get the last partition number.
 # It assumes standard parted output and that the last partition is the one to resize.
-LAST_PARTITION_NUMBER=$(sudo parted ---script "${TARGET_DEVICE}" print | awk '/^[ ]*[0-9]+/{print $1}' | tail -n 1)
+LAST_PARTITION_NUMBER=$(sudo parted --script "${TARGET_DEVICE}" print | awk '/^[ ]*[0-9]+/{print $1}' | tail -n 1)
 
 if [ -z "${LAST_PARTITION_NUMBER}" ]; then
   echo "Error: Could not determine the last partition number on ${TARGET_DEVICE}."
