@@ -15,8 +15,22 @@ const COMMON_COMMAND_LOCATIONS = {
     'sgdisk': ['/sbin/sgdisk', '/usr/sbin/sgdisk', '/usr/bin/sgdisk'],
     'e2fsck': ['/sbin/e2fsck', '/usr/sbin/e2fsck'],
     'partprobe': ['/sbin/partprobe', '/usr/sbin/partprobe'],
-    'command': ['/bin/command', '/usr/bin/command'] // For 'command -v' itself
+    'command': ['/bin/command', '/usr/bin/command'],
+    'sudo': ['/bin/sudo', '/usr/bin/sudo']
 };
+
+/**
+ * Helper function to execute a command with sudo privileges
+ */
+async function execWithSudo(commandPath, args) {
+    const sudoPath = commandPathCache['sudo'];
+    if (!sudoPath) {
+        throw new Error("'sudo' command path not found.");
+    }
+    
+    const sudoArgs = [commandPath, ...args];
+    return await execFileAsync(sudoPath, sudoArgs);
+}
 
 /**
  * Lists available block devices with relevant information.
@@ -27,30 +41,20 @@ const COMMON_COMMAND_LOCATIONS = {
  * Each object will have keys like: path, name, size, model, isRemovable, isOS, filesystemType.
  */
 async function listBlockDevices() {
-    // const command = 'lsblk'; // Old
     const lsblkPath = commandPathCache['lsblk'];
     if (!lsblkPath) throw new Error("'lsblk' command path not found. Was it checked at startup?");
-    // -J for JSON output
-    // -b for size in bytes
-    // -o to specify columns
-    // PATH: full device path, NAME: short name, SIZE: size in bytes, MODEL: device model
-    // FSTYPE: filesystem type, MOUNTPOINT: where it's mounted
-    // PKNAME: parent kernel name (to find parent disk of a partition)
-    // TYPE: device type (disk, part, loop, etc.)
-    // RM: removable flag (boolean true/false in JSON)
+    
     const args = ['-Jb', '-o', 'PATH,NAME,SIZE,MODEL,FSTYPE,MOUNTPOINT,PKNAME,TYPE,RM'];
 
     try {
-        // const { stdout } = await execFileAsync(command, args); // Old
-        const { stdout } = await execFileAsync(lsblkPath, args); // New
+        const { stdout } = await execFileAsync(lsblkPath, args);
         const lsblkData = JSON.parse(stdout);
-        let osDevicePath = null; // Stores the path of the disk hosting the OS, e.g., /dev/sda
+        let osDevicePath = null;
 
-        // Helper function to recursively find the device path for the root mountpoint '/'
         function findPathForRootMountpoint(devices) {
             for (const device of devices) {
                 if (device.mountpoint === '/') {
-                    return device.path; // Path of the partition, e.g., /dev/sda1
+                    return device.path;
                 }
                 if (device.children) {
                     const rootChildPath = findPathForRootMountpoint(device.children);
@@ -63,18 +67,14 @@ async function listBlockDevices() {
         const rootPartitionPath = findPathForRootMountpoint(lsblkData.blockdevices || []);
 
         if (rootPartitionPath) {
-            // If root is on a partition (e.g., /dev/sda1), find its parent disk (e.g., /dev/sda).
-            // If root is directly on a disk (e.g. /dev/sdb, less common), that's our osDevicePath.
             for (const device of lsblkData.blockdevices || []) {
-                // Case 1: The root partition path is itself a disk-level device (e.g. /dev/sdb mounted as /)
                 if (device.path === rootPartitionPath && ['disk', 'mmcblk', 'nvme'].includes(device.type)) {
                     osDevicePath = device.path;
                     break;
                 }
-                // Case 2: The root partition is a child of this device
                 if (device.children) {
                     if (device.children.some(child => child.path === rootPartitionPath)) {
-                        osDevicePath = device.path; // This is the parent disk's path
+                        osDevicePath = device.path;
                         break;
                     }
                 }
@@ -82,80 +82,54 @@ async function listBlockDevices() {
         }
 
         const devices = (lsblkData.blockdevices || [])
-            .filter(device => ['disk', 'mmcblk', 'nvme'].includes(device.type)) // Only include actual disk-like devices
+            .filter(device => ['disk', 'mmcblk', 'nvme'].includes(device.type))
             .map(device => ({
                 path: device.path,
                 name: device.name,
-                size: device.size, // Size in bytes
+                size: device.size,
                 model: device.model || 'Unknown Model',
-                isRemovable: device.rm === true, // lsblk JSON uses boolean for 'rm'
+                isRemovable: device.rm === true,
                 isOS: device.path === osDevicePath,
                 filesystemType: device.fstype || null,
-                // Add raw details for debugging or future use if needed
-                // _rawLsblkInfo: device
             }));
 
         return devices;
 
     } catch (error) {
         console.error(`Error listing block devices: ${error.message}`);
-        console.error(`Stderr: ${error.stderr}`); // Include stderr for more details
-        // For the Electron app, we'll want to send this error to the renderer process
-        // so it can be displayed to the user.
+        console.error(`Stderr: ${error.stderr}`);
         throw new Error(`Failed to list available storage devices (lsblk). Ensure 'lsblk' is installed and you have permissions. Details: ${error.stderr || error.message}`);
     }
 }
 
-// Export the function for use in main Electron process
-// const { spawn } = require('child_process'); // spawn was already imported/moved to top
-
 /**
- * Flashes a raw image file to a target device using dd.
- * This function spawns a 'dd' process to write the image.
- * It requires 'sudo' privileges for 'dd' to access block devices directly.
- * The 'bs=4M' argument sets a block size of 4MB for potentially faster transfers.
- * 'status=progress' enables progress reporting from GNU dd (stderr).
- * 'conv=fsync' ensures data is physically written to disk before 'dd' exits.
- * @param {string} imagePath Absolute path to the raw image file.
- * @param {string} targetDevicePath Absolute path to the target device (e.g., /dev/sda).
- * @param {number} totalSizeInBytes Total size of the image in bytes for progress calculation.
- * @param {function} onProgress Callback function to report progress.
- *                   It will be called with an object like: { progress: Number, speed: String, rawLine: String }
- *                   Progress is a percentage (0-100).
- * @returns {Promise<void>} A promise that resolves when flashing is complete, or rejects on error.
+ * Flashes a raw image file to a target device using dd with sudo privileges.
  */
 function flashImage(imagePath, targetDevicePath, totalSizeInBytes, onProgress) {
     return new Promise((resolve, reject) => {
-        let lastProgress = 0; // Initialize lastProgress
-        // const command = 'dd'; // Old
+        let lastProgress = 0;
         const ddPath = commandPathCache['dd'];
-        if (!ddPath) return reject(new Error("'dd' command path not found.")); // Promise context
+        const sudoPath = commandPathCache['sudo'];
+        
+        if (!ddPath) return reject(new Error("'dd' command path not found."));
+        if (!sudoPath) return reject(new Error("'sudo' command path not found."));
 
         const args = [
+            ddPath,
             `if=${imagePath}`,
             `of=${targetDevicePath}`,
-            'bs=4M',        // Block size
-            'status=progress', // Request progress output from dd
-            'conv=fsync'    // Ensure data is physically written before dd exits
+            'bs=4M',
+            'status=progress',
+            'conv=fsync'
         ];
 
-        // Note: 'dd' might require sudo/root privileges to write to block devices.
-        // Electron app might need to be launched with sudo, or a helper with pkexec/sudo-prompt used.
-        // For now, assuming permissions are handled externally or app is run as root.
+        console.log(`Executing dd with sudo: ${sudoPath} ${args.join(' ')}`);
 
-        console.log(`Executing dd: ${ddPath} ${args.join(' ')}`); // For logging
-
-        const ddProcess = spawn(ddPath, args); // New
-
-        // const progressRegex = /(\d+)\s*bytes.*copied,\s*([0-9.]+)\s*s,\s*([0-9.]+\s*\wB\/s)/;
-        // Example dd output on stderr:
-        // 123456789 bytes (123 MB, 118 MiB) copied, 10.123 s, 12.2 MB/s
+        const ddProcess = spawn(sudoPath, args);
 
         ddProcess.stderr.on('data', (data) => {
             const output = data.toString();
-            // console.debug(`dd stderr: ${output}`); // Log raw stderr for debugging
-
-            const lines = output.trim().split('\r'); // dd status=progress often uses \r
+            const lines = output.trim().split('\r');
             const lastLine = lines[lines.length - 1];
 
             let currentProgressPercentage = lastProgress;
@@ -165,19 +139,17 @@ function flashImage(imagePath, targetDevicePath, totalSizeInBytes, onProgress) {
                 const bytesCopied = parseInt(bytesMatch[1], 10);
                 currentProgressPercentage = Math.min(Math.round((bytesCopied / totalSizeInBytes) * 100), 100);
                 
-                if (currentProgressPercentage > lastProgress || (lastProgress === 0 && currentProgressPercentage === 0) ) {
-                     lastProgress = currentProgressPercentage;
+                if (currentProgressPercentage > lastProgress || (lastProgress === 0 && currentProgressPercentage === 0)) {
+                    lastProgress = currentProgressPercentage;
                 } else {
-                     currentProgressPercentage = lastProgress; // don't go backwards
+                    currentProgressPercentage = lastProgress;
                 }
-                if (bytesCopied >= totalSizeInBytes) { // Ensure 100% if bytes copied meet/exceed total
+                if (bytesCopied >= totalSizeInBytes) {
                     currentProgressPercentage = 100;
                     lastProgress = 100;
                 }
             } else if (lastLine.toLowerCase().includes('copied') && lastProgress < 99 && !bytesMatch) {
-                // Fallback for very brief dd outputs that might not have full stats before finishing
-                // or if initial parsing fails but we see "copied"
-                lastProgress = Math.min(lastProgress + 1, 99); // very rough increment, avoid hitting 100 prematurely
+                lastProgress = Math.min(lastProgress + 1, 99);
                 currentProgressPercentage = lastProgress;
             }
 
@@ -216,27 +188,13 @@ function flashImage(imagePath, targetDevicePath, totalSizeInBytes, onProgress) {
     });
 }
 
-
-// Append to existing exports
-module.exports = {
-    listBlockDevices, // Keep existing
-    flashImage,       // Keep existing
-    extendPartition,  // Keep existing
-    safeEject,        // Add new
-    getImageSize,     // Add getImageSize
-    checkAllRequiredCommands, // Add checkAllRequiredCommands
-};
-
 /**
  * Retrieves the size of an image file.
- * @param {string} imagePath - The path to the image file.
- * @returns {Promise<number>} A promise that resolves with the file size in bytes.
- * @throws {Error} If the file size cannot be determined (e.g., file not found, permissions).
  */
 async function getImageSize(imagePath) {
     try {
         const stats = await fs.stat(imagePath);
-        return stats.size; // size in bytes
+        return stats.size;
     } catch (error) {
         console.error(`Error getting file size for ${imagePath}:`, error);
         throw new Error(`Could not get image file size for '${imagePath}'. Please ensure the file exists and is accessible. Details: ${error.message}`);
@@ -245,78 +203,41 @@ async function getImageSize(imagePath) {
 
 /**
  * Checks if a given command-line utility exists and is executable.
- * Uses 'command -v' which is a POSIX standard way to find a command.
- * @param {string} commandName - The name of the command to check (e.g., "dd", "lsblk").
- * @returns {Promise<string|null>} The absolute path to the command if found and executable, otherwise null.
  */
 async function checkCommandExists(commandName) {
-    // 1. Try 'command -v' first (relies on PATH)
-    try {
-        const commandUtilAbsPath = commandPathCache['command'] || COMMON_COMMAND_LOCATIONS['command'][0] || 'command';
-        const { stdout } = await execFileAsync(commandUtilAbsPath, ['-v', commandName]);
-        const discoveredPath = stdout.trim();
-        if (discoveredPath) {
-            // Optional: Verify it's executable, though 'command -v' usually implies this.
-            await fs.access(discoveredPath, fsConstants.X_OK);
-            console.log(`Command '${commandName}' found via 'command -v' at: ${discoveredPath}`);
-            return discoveredPath;
-        }
-    } catch (error) {
-        // 'command -v' failed or path not executable, proceed to check common locations
-        console.warn(`'command -v ${commandName}' failed or path not executable. Error: ${error.message}. Trying common locations.`);
-    }
-
-    // 2. If 'command -v' fails, check predefined common locations
     const locations = COMMON_COMMAND_LOCATIONS[commandName];
     if (locations) {
         for (const loc of locations) {
             try {
-                await fs.access(loc, fsConstants.X_OK); // Check for existence and execute permission
+                await fs.access(loc, fsConstants.X_OK);
                 console.log(`Command '${commandName}' found at absolute path: ${loc}`);
-                return loc; // Return the first valid location found
+                return loc;
             } catch (e) {
-                // fs.access failed (not found or not executable), try next location
+                // Continue to next location
             }
         }
     }
-    console.error(`Command '${commandName}' not found via 'command -v' or in common locations.`);
-    return null; // Not found
+    console.error(`Command '${commandName}' not found in common locations.`);
+    return null;
 }
 
 /**
  * Checks for the existence of a list of required command-line utilities and populates the commandPathCache.
- * @param {Array<string>} commandNames - An array of command names to check.
- * @returns {Promise<Array<string>>} A promise that resolves to an array of missing command names.
- * If all commands exist, the array will be empty.
  */
 async function checkAllRequiredCommands(commandNames) {
     const missingCommands = [];
-    commandPathCache = {}; // Reset cache before checking
+    commandPathCache = {};
 
-    // First, ensure 'command' itself is available for 'command -v'
-    // Try common locations for 'command' first, then 'command -v command' if necessary (though that's circular without a base)
-    let commandUtilPath = null;
-    for (const loc of COMMON_COMMAND_LOCATIONS['command']) {
-        try {
-            await fs.access(loc, fsConstants.X_OK);
-            commandUtilPath = loc;
-            break;
-        } catch (e) {/* try next */}
-    }
-    if (commandUtilPath) {
-        commandPathCache['command'] = commandUtilPath;
-        console.log(`Using 'command' utility at: ${commandUtilPath}`);
+    // Always check for sudo first
+    const sudoPath = await checkCommandExists('sudo');
+    if (sudoPath) {
+        commandPathCache['sudo'] = sudoPath;
     } else {
-        console.error("'command' utility itself not found in common locations. 'command -v' checks might be less reliable or fail if 'command' is not in a standard PATH location already accessible to Node's child_process.");
-        // No 'command' found, so checkCommandExists will skip 'command -v' for other commands
-        // and rely only on COMMON_COMMAND_LOCATIONS.
+        missingCommands.push('sudo');
     }
 
     for (const cmdName of commandNames) {
-        if (cmdName === 'command' && commandUtilPath) { // Already found 'command'
-            if (!commandPathCache[cmdName]) commandPathCache[cmdName] = commandUtilPath; // Ensure it's cached if requested
-            continue;
-        }
+        if (cmdName === 'sudo') continue; // Already checked
         const path = await checkCommandExists(cmdName);
         if (path) {
             commandPathCache[cmdName] = path;
@@ -329,70 +250,42 @@ async function checkAllRequiredCommands(commandNames) {
 
 /**
  * Extends a specified partition on a target device to fill 100% of the available space.
- * This involves several steps:
- * 1. Attempt to unmount the partition (best-effort, as parted might require this).
- * 2. Fix the GPT partition table if needed.
- * 3. Use 'parted --script <device> resizepart <partition_number> 100%' to extend the partition boundary.
- * 4. Use 'resize2fs <partition_device_path>' to resize the ext2/3/4 filesystem within the partition.
- * Note: This function assumes the filesystem is ext2/3/4. Other filesystem types would require different resize tools.
- * @param {string} targetDevicePath - Absolute path to the target disk device (e.g., /dev/sda).
- * @param {number} [partitionNumber=3] - The number of the partition to extend. Defaults to 3.
- * @returns {Promise<void>} A promise that resolves when extension is complete.
- * @throws {Error} If any step of the process fails, including inconsistent paths, parted errors, or resize2fs errors.
- *                 The error message will attempt to provide context and details from stderr where possible.
  */
 async function extendPartition(targetDevicePath, partitionNumber = 3) {
-    // parted requires the partition not to be mounted for resizing the partition itself.
-    // However, after the partition is resized, the filesystem within it needs to be resized too,
-    // which usually requires the partition to be mounted (e.g., resize2fs for ext4).
-    // This function only handles the partition resizing with parted.
-    // Filesystem resize is a separate step, potentially needing a different utility.
-    // For now, we focus on what 'parted' does.
-
-    // First, try to unmount the partition if it's mounted. This is often a prerequisite.
-    // This is a best-effort; if it fails, parted might still work or might fail with a clearer message.
-    // We need to identify the partition path, e.g. /dev/sda3 from /dev/sda and partitionNumber 3
     let partitionDevicePath = targetDevicePath;
-    if (!targetDevicePath.match(/[0-9]$/)) { // if targetDevicePath is /dev/sda, append partitionNumber
+    if (!targetDevicePath.match(/[0-9]$/)) {
         partitionDevicePath = targetDevicePath + partitionNumber;
-    } else if (targetDevicePath.endsWith(String(partitionNumber))) { // if targetDevicePath is /dev/sda3 already
+    } else if (targetDevicePath.endsWith(String(partitionNumber))) {
         // no change needed
     } else {
-        // This case is ambiguous, e.g. targetDevicePath /dev/sda1, partitionNumber 3. Error.
-        return Promise.reject(new Error(`Target device path ${targetDevicePath} and partition number ${partitionNumber} are inconsistent.`));
+        throw new Error(`Target device path ${targetDevicePath} and partition number ${partitionNumber} are inconsistent.`);
     }
 
+    // Try to unmount the partition
     try {
         console.log(`Attempting to unmount partition ${partitionDevicePath} if mounted...`);
         const udisksctlPath = commandPathCache['udisksctl'];
         if (!udisksctlPath) throw new Error("'udisksctl' command path not found.");
-        // Use udisksctl for unmounting as it's generally safer and handles multiple users.
-        await execFileAsync(udisksctlPath, ['unmount', '-b', partitionDevicePath]); // New
-        console.log(`Successfully unmounted ${partitionDevicePath} or it was already unmounted.`);
+        await execFileAsync(udisksctlPath, ['unmount', '-b', partitionDevicePath]);
+        console.log(`Successfully unmounted ${partitionDevicePath}`);
     } catch (error) {
-        // Log error but proceed, as parted might still work or provide a more specific error.
-        // Common error if not mounted: "Error unmounting /dev/sdXN: GDBus.Error:org.freedesktop.UDisks2.Error.NotMounted: Device is not mounted"
         console.warn(`Could not unmount ${partitionDevicePath} (may be normal if not mounted): ${error.message}`);
     }
 
     const partedPath = commandPathCache['parted'];
     if (!partedPath) throw new Error("'parted' command path not found.");
 
-    // First, fix the GPT if needed using a non-interactive approach
+    // Check if GPT needs fixing
     console.log(`Checking if GPT needs fixing for ${targetDevicePath}...`);
     try {
-        // Run parted print to check for GPT issues
-        const { stdout: checkStdout, stderr: checkStderr } = await execFileAsync(partedPath, ['--script', targetDevicePath, 'print']);
+        const { stdout: checkStdout, stderr: checkStderr } = await execWithSudo(partedPath, ['--script', targetDevicePath, 'print']);
         
-        // If there's a GPT warning, we need to fix it using sgdisk
         if (checkStderr && checkStderr.includes('you can fix the GPT')) {
             console.log('GPT needs fixing. Using sgdisk to fix...');
             
-            // Try using sgdisk - move backup GPT to end of disk
             try {
                 const sgdiskPath = commandPathCache['sgdisk'];
                 if (!sgdiskPath) {
-                    // Try to find sgdisk manually if not in cache
                     const sgdiskFound = await checkCommandExists('sgdisk');
                     if (sgdiskFound) {
                         commandPathCache['sgdisk'] = sgdiskFound;
@@ -401,16 +294,16 @@ async function extendPartition(targetDevicePath, partitionNumber = 3) {
                     }
                 }
                 
-                console.log(`Executing sgdisk: ${commandPathCache['sgdisk']} -e ${targetDevicePath}`);
-                await execFileAsync(commandPathCache['sgdisk'], ['-e', targetDevicePath]);
+                console.log(`Executing sgdisk with sudo: ${commandPathCache['sgdisk']} -e ${targetDevicePath}`);
+                await execWithSudo(commandPathCache['sgdisk'], ['-e', targetDevicePath]);
                 console.log('GPT fixed using sgdisk');
                 
-                // Refresh the partition table to inform the kernel
+                // Refresh the partition table
                 try {
                     const partprobePath = commandPathCache['partprobe'] || await checkCommandExists('partprobe');
                     if (partprobePath) {
                         commandPathCache['partprobe'] = partprobePath;
-                        await execFileAsync(partprobePath, [targetDevicePath]);
+                        await execWithSudo(partprobePath, [targetDevicePath]);
                         console.log('Partition table refreshed with partprobe');
                     }
                 } catch (partprobeError) {
@@ -419,9 +312,8 @@ async function extendPartition(targetDevicePath, partitionNumber = 3) {
             } catch (sgdiskError) {
                 console.warn(`sgdisk failed: ${sgdiskError.message}. Trying alternative approach...`);
                 
-                // Alternative: use parted unit s print to force GPT update
                 try {
-                    await execFileAsync(partedPath, ['--script', targetDevicePath, 'unit', 's', 'print']);
+                    await execWithSudo(partedPath, ['--script', targetDevicePath, 'unit', 's', 'print']);
                     console.log('GPT table refreshed using parted');
                 } catch (unitError) {
                     console.warn('Could not refresh GPT table, proceeding anyway');
@@ -434,36 +326,23 @@ async function extendPartition(targetDevicePath, partitionNumber = 3) {
         console.warn(`GPT check/fix failed (may be normal): ${error.message}`);
     }
 
-    // Then resize the partition
-    const args = [
-        '--script',
-        targetDevicePath,
-        'resizepart',
-        String(partitionNumber),
-        '100%' // Extend to fill the disk
-    ];
-
-    console.log(`Executing parted: ${partedPath} ${args.join(' ')}`); // New
+    // Resize the partition
+    const args = ['--script', targetDevicePath, 'resizepart', String(partitionNumber), '100%'];
+    console.log(`Executing parted with sudo: ${partedPath} ${args.join(' ')}`);
 
     try {
-        // Important: parted might print to stdout on success, or stderr for warnings/errors.
-        // const { stdout, stderr } = await execFileAsync(command, args); // Old
-        const { stdout, stderr } = await execFileAsync(partedPath, args); // New
+        const { stdout, stderr } = await execWithSudo(partedPath, args);
         if (stdout) console.log(`parted stdout: ${stdout}`);
-        if (stderr) console.warn(`parted stderr: ${stderr}`); // stderr might contain warnings even on success
+        if (stderr) console.warn(`parted stderr: ${stderr}`);
 
-        // After parted resizes the partition, the filesystem needs to be told about the new size.
-        // For ext2/3/4, this is typically 'resize2fs /dev/sdXN'.
-        // This is a CRITICAL next step not handled by this function directly.
-        console.log(`Partition ${partitionNumber} on ${targetDevicePath} resized by parted. Filesystem may need separate resize (e.g., resize2fs).`);
+        console.log(`Partition ${partitionNumber} on ${targetDevicePath} resized by parted.`);
 
-        // Attempt resize2fs
-        console.log(`Attempting to resize filesystem on ${partitionDevicePath} using resize2fs...`);
+        // Filesystem operations
+        console.log(`Attempting to resize filesystem on ${partitionDevicePath}...`);
         try {
             // First run e2fsck to check filesystem integrity
             const e2fsckPath = commandPathCache['e2fsck'];
             if (!e2fsckPath) {
-                // Try to find e2fsck manually if not in cache
                 const e2fsckFound = await checkCommandExists('e2fsck');
                 if (e2fsckFound) {
                     commandPathCache['e2fsck'] = e2fsckFound;
@@ -473,7 +352,7 @@ async function extendPartition(targetDevicePath, partitionNumber = 3) {
             }
             
             console.log(`Running filesystem check with e2fsck on ${partitionDevicePath}...`);
-            const { stdout: e2fsck_stdout, stderr: e2fsck_stderr } = await execFileAsync(commandPathCache['e2fsck'], ['-f', '-y', partitionDevicePath]);
+            const { stdout: e2fsck_stdout, stderr: e2fsck_stderr } = await execWithSudo(e2fsckPath, ['-f', '-y', partitionDevicePath]);
             if (e2fsck_stdout) console.log(`e2fsck stdout: ${e2fsck_stdout}`);
             if (e2fsck_stderr) console.warn(`e2fsck stderr: ${e2fsck_stderr}`);
             console.log(`Filesystem check completed on ${partitionDevicePath}.`);
@@ -481,45 +360,36 @@ async function extendPartition(targetDevicePath, partitionNumber = 3) {
             // Now run resize2fs
             const resize2fsPath = commandPathCache['resize2fs'];
             if (!resize2fsPath) throw new Error("'resize2fs' command path not found.");
-            const { stdout: resizefs_stdout, stderr: resizefs_stderr } = await execFileAsync(resize2fsPath, [partitionDevicePath]);
+            const { stdout: resizefs_stdout, stderr: resizefs_stderr } = await execWithSudo(resize2fsPath, [partitionDevicePath]);
             if (resizefs_stdout) console.log(`resize2fs stdout: ${resizefs_stdout}`);
             if (resizefs_stderr) console.warn(`resize2fs stderr: ${resizefs_stderr}`);
             console.log(`Filesystem on ${partitionDevicePath} successfully resized.`);
         } catch (resizefsError) {
             console.error(`Error during filesystem operations for ${partitionDevicePath}: ${resizefsError.message}`);
             console.error(`Filesystem error stderr: ${resizefsError.stderr}`);
-            // This is a common point of failure if the filesystem type is wrong or other conditions aren't met.
-            // We'll throw an error here as extending the partition without resizing the FS is often not useful.
-            throw new Error(`Partition was resized, but the filesystem could not be extended automatically. Filesystem operations failed for ${partitionDevicePath} with message: ${resizefsError.message}. You may need to run e2fsck and resize2fs manually (e.g., sudo e2fsck -f ${partitionDevicePath} && sudo resize2fs ${partitionDevicePath}). Stderr: ${resizefsError.stderr || 'N/A'}`);
+            throw new Error(`Partition was resized, but the filesystem could not be extended automatically. Filesystem operations failed for ${partitionDevicePath} with message: ${resizefsError.message}. You may need to run e2fsck and resize2fs manually (e.g., sudo e2fsck -f -y ${partitionDevicePath} && sudo resize2fs ${partitionDevicePath}). Stderr: ${resizefsError.stderr || 'N/A'}`);
         }
 
-        return Promise.resolve();
+        console.log('✅ Partition extension completed successfully!');
     } catch (error) {
-        console.error(`Error during parted operation for ${targetDevicePath}: ${error.message}`);
+        console.error(`❌ Error during parted operation for ${targetDevicePath}: ${error.message}`);
         console.error(`parted stderr: ${error.stderr}`);
-        return Promise.reject(new Error(`parted operation failed for ${targetDevicePath}: ${error.message}. Stderr: ${error.stderr}`));
+        throw new Error(`parted operation failed for ${targetDevicePath}: ${error.message}. Stderr: ${error.stderr}`);
     }
 }
 
 /**
  * Safely ejects a target disk by attempting to unmount all its partitions
  * and then powering off the disk using udisksctl.
- * This function is designed for Linux environments where udisksctl is available.
- * @param {string} targetDevicePath - Absolute path to the target disk device (e.g., /dev/sda).
- * @returns {Promise<void>} A promise that resolves when ejection is complete.
- * @throws {Error} If listing partitions, unmounting, or powering off fails.
- *                 The error will include details from stderr if available.
  */
 async function safeEject(targetDevicePath) {
     console.log(`Starting safe eject for ${targetDevicePath}`);
 
     try {
-        // Step 1: List all partitions for the given disk.
         const lsblkPathForEject = commandPathCache['lsblk'];
         if (!lsblkPathForEject) throw new Error("'lsblk' command path not found for eject operation.");
-        // We can reuse parts of listBlockDevices or call lsblk directly for simplicity here
-        // to get children of targetDevicePath.
-        const { stdout } = await execFileAsync(lsblkPathForEject, ['-Jb', '-o', 'PATH,TYPE', targetDevicePath]); // New
+        
+        const { stdout } = await execFileAsync(lsblkPathForEject, ['-Jb', '-o', 'PATH,TYPE', targetDevicePath]);
         const lsblkData = JSON.parse(stdout);
 
         let partitionsToUnmount = [];
@@ -528,54 +398,41 @@ async function safeEject(targetDevicePath) {
                 .filter(child => child.type === 'part' && child.path)
                 .map(child => child.path);
         } else if (lsblkData.blockdevices && lsblkData.blockdevices[0] && lsblkData.blockdevices[0].type === 'part') {
-            // This case handles if targetDevicePath itself is a partition path (though it should be a disk)
-            // However, udisksctl power-off needs the main disk device.
-            // For unmounting, the partition path is fine.
-            // For now, assume targetDevicePath is the main disk.
             console.warn(`safeEject was called with ${targetDevicePath}, which might be a partition. Proceeding with unmount if it is, but power-off might need parent.`);
         }
 
-
         if (partitionsToUnmount.length === 0) {
-            // If no children partitions, perhaps it's a disk without partitions, or already unmounted/inaccessible.
-            // Or it could be that targetDevicePath is a partition itself.
-            // Let's try to unmount targetDevicePath directly if it appears to be a partition
-            // (e.g. /dev/sda1). This is a fallback.
-            // lsblkPathForEject should already be defined and checked
-            const lsblkInfoSelf = await execFileAsync(lsblkPathForEject, ['-Jb', '-o', 'PATH,TYPE,MOUNTPOINT', targetDevicePath]); // New
+            const lsblkInfoSelf = await execFileAsync(lsblkPathForEject, ['-Jb', '-o', 'PATH,TYPE,MOUNTPOINT', targetDevicePath]);
             const selfInfo = JSON.parse(lsblkInfoSelf.stdout).blockdevices[0];
-            if (selfInfo && selfInfo.type === 'part' && selfInfo.mountpoint) { // Check if it's a mounted partition
-                 partitionsToUnmount.push(targetDevicePath);
+            if (selfInfo && selfInfo.type === 'part' && selfInfo.mountpoint) {
+                partitionsToUnmount.push(targetDevicePath);
             } else if (!selfInfo) {
-                 console.warn(`Could not get info for ${targetDevicePath} to determine if it's a partition to unmount.`);
+                console.warn(`Could not get info for ${targetDevicePath} to determine if it's a partition to unmount.`);
             }
         }
 
-        // Step 2: Unmount each partition.
+        // Unmount each partition
         for (const partPath of partitionsToUnmount) {
             try {
                 console.log(`Attempting to unmount ${partPath}...`);
                 const udisksctlPathForEject = commandPathCache['udisksctl']; 
                 if (!udisksctlPathForEject) throw new Error("'udisksctl' command path not found for unmount in eject.");
-                await execFileAsync(udisksctlPathForEject, ['unmount', '-b', partPath]); // New
+                await execFileAsync(udisksctlPathForEject, ['unmount', '-b', partPath]);
                 console.log(`Successfully unmounted ${partPath}.`);
             } catch (unmountError) {
-                // Ignore "Not Mounted" errors, but log others.
                 if (unmountError.stderr && unmountError.stderr.includes('NotMounted')) {
                     console.log(`${partPath} was already not mounted.`);
                 } else {
                     console.warn(`Could not unmount ${partPath}: ${unmountError.message}. Stderr: ${unmountError.stderr || ''}`);
-                    // Do not re-throw; attempt to power off anyway.
                 }
             }
         }
 
-        // Step 3: Power off the disk.
-        // udisksctl power-off requires the main block device (e.g. /dev/sda), not a partition.
-        const udisksctlPathForEjectPowerOff = commandPathCache['udisksctl']; // Re-affirm or pass from above
+        // Power off the disk
+        const udisksctlPathForEjectPowerOff = commandPathCache['udisksctl'];
         if (!udisksctlPathForEjectPowerOff) throw new Error("'udisksctl' command path not found for power-off in eject.");
         console.log(`Attempting to power off ${targetDevicePath}...`);
-        await execFileAsync(udisksctlPathForEjectPowerOff, ['power-off', '-b', targetDevicePath]); // New
+        await execFileAsync(udisksctlPathForEjectPowerOff, ['power-off', '-b', targetDevicePath]);
         console.log(`Successfully powered off ${targetDevicePath}.`);
 
         return Promise.resolve();
@@ -587,10 +444,18 @@ async function safeEject(targetDevicePath) {
             console.error(`Stderr: ${error.stderr}`);
             errorMessage += ` Stderr: ${error.stderr}`;
         }
-        // Specific error for udisksctl power-off if disk is busy
         if (error.stderr && error.stderr.includes('Device is busy')) {
-             errorMessage = `Device ${targetDevicePath} is busy. Ensure all filesystems are unmounted and no processes are using it. (${error.stderr})`;
+            errorMessage = `Device ${targetDevicePath} is busy. Ensure all filesystems are unmounted and no processes are using it. (${error.stderr})`;
         }
         return Promise.reject(new Error(`Safe eject failed for ${targetDevicePath}: ${errorMessage}`));
     }
 }
+
+module.exports = {
+    listBlockDevices,
+    flashImage,
+    extendPartition,
+    safeEject,
+    getImageSize,
+    checkAllRequiredCommands,
+};

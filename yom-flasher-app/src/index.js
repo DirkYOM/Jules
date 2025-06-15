@@ -40,7 +40,7 @@ const createWindow = () => {
 // This method will be called when Electron has finished
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
-app.whenReady().then(async () => { // Make the callback async
+app.whenReady().then(async () => {
   // Attempt to call fix-path, checking if it's a direct function or has a .default function
   if (typeof fixPath === 'function') {
     fixPath();
@@ -52,7 +52,7 @@ app.whenReady().then(async () => { // Make the callback async
     console.error('fix-path was loaded, but its structure is not as expected (not a function, no .default function). PATH environment variable might not be corrected. Type of fixPath:', typeof fixPath);
   }
 
-  // Launch the root helper script
+  // Start the root helper script asynchronously (don't wait for it)
   const helperScriptPath = path.join(__dirname, 'root-helper.js');
   const command = `node "${helperScriptPath}"`;
   const options = { 
@@ -63,60 +63,35 @@ app.whenReady().then(async () => { // Make the callback async
     }
   };
 
-  await new Promise((resolve, reject) => {
-    sudoPrompt.exec(command, options, (error, stdout, stderr) => {
-      if (error) {
-        console.error('Failed to start root helper:', error);
-        console.error('sudo-prompt stdout:', stdout);
-        console.error('sudo-prompt stderr:', stderr);
-        dialog.showErrorBox('Error', 'Failed to start background service with root privileges. The application will now quit.');
-        app.quit();
-        reject(error); // Reject the promise to stop further execution in whenReady
-        return;
-      }
-      console.log('Root helper script launched by sudo-prompt.');
-      // Check stdout for the listening message
-      // A more robust way would be for the helper to write to its stdout only that message,
-      // or use another IPC mechanism for readiness.
-      if (stdout && stdout.includes('Root Helper: Server listening on')) {
-        console.log('Detected helper is listening from stdout.');
-        connectToHelper();
-        resolve(); // Resolve the promise
-      } else if (stderr && !stderr.includes("XDG_RUNTIME_DIR not set")) { 
-        // Ignore XDG_RUNTIME_DIR warning if it's the only thing in stderr
-        console.error('Root helper script stderr on launch (and not just XDG warning):', stderr);
-        // It's possible the script started but had other errors.
-        // Or it might have started successfully and the listening message is in stderr (less likely).
-        // For now, if there's significant stderr, treat as potential failure.
-        dialog.showErrorBox('Error', 'Background service started with errors or did not confirm listening. The application will now quit.');
-        app.quit();
-        reject(new Error('Helper script stderr or missing listening confirmation.'));
-        return;
-      } else {
-        // If stdout is empty or doesn't contain the message, and stderr is empty/ignorable
-        // This case might mean sudo-prompt worked, but the script exited too quickly or didn't output.
-        console.warn('Root helper stdout did not contain listening confirmation or was empty. stderr:', stderr);
-        // Trying to connect anyway, or wait a bit. For now, let's try connecting after a short delay.
-        // This is a fallback.
-        setTimeout(() => {
-            console.log('Attempting to connect to helper after a short delay (fallback).');
-            connectToHelper();
-            resolve(); // Resolve, but with a warning/potential instability
-        }, 1000); // 1 second delay
-      }
-    });
-  }).catch(err => {
-    console.error("Promise rejected after sudoPrompt.exec, app should have quit or is quitting.", err);
-    return; // Ensure no further execution in whenReady if promise rejected
+  // Start helper but don't block app startup
+  sudoPrompt.exec(command, options, (error, stdout, stderr) => {
+    if (error) {
+      console.error('Failed to start root helper:', error);
+      console.error('sudo-prompt stdout:', stdout);
+      console.error('sudo-prompt stderr:', stderr);
+      dialog.showErrorBox('Error', 'Failed to start background service with root privileges.');
+      return;
+    }
+    console.log('Root helper script launched by sudo-prompt.');
+    console.log('Helper stdout:', stdout);
+    if (stderr && !stderr.includes("XDG_RUNTIME_DIR not set")) {
+      console.warn('Helper stderr:', stderr);
+    }
+    
+    // Try to connect after a short delay to allow helper to start
+    setTimeout(() => {
+      connectToHelper();
+    }, 2000); // 2 second delay
   });
   
-  const mainWindow = createWindow(); // Create the main application window.
+  // Create the main window immediately (don't wait for helper)
+  const mainWindow = createWindow();
 
   // --- Application Startup Checks ---
   // Check for required command-line utilities critical for the app's functionality.
   // If any are missing, an error dialog is shown to the user.
   // The application will still load, but core operations will likely fail.
-  const requiredCommands = ['dd', 'lsblk', 'parted', 'resize2fs', 'udisksctl', 'sgdisk', 'e2fsck'];
+  const requiredCommands = ['dd', 'lsblk', 'parted', 'resize2fs', 'udisksctl', 'sgdisk', 'e2fsck', 'sudo'];
   const missingCommands = await checkAllRequiredCommands(requiredCommands);
   if (missingCommands.length > 0) {
       dialog.showErrorBox(
@@ -294,18 +269,19 @@ function connectToHelper() {
 
   helperClient.on('error', (err) => {
     console.error('Main App: Connection to root helper failed:', err.message);
-    if (!app.isQuitting()) { // Check if we are already trying to quit
-        dialog.showErrorBox('Error', `Could not connect to background service: ${err.message}. The application may not function correctly or will quit.`);
-        // Optionally, quit the app or run in a degraded mode
-        // app.quit(); 
-    }
-    helperClient = null; // Reset client
+    helperClient = null;
     global.helperClient = null;
+    
+    // Retry connection after a delay
+    setTimeout(() => {
+      console.log('Retrying connection to helper...');
+      connectToHelper();
+    }, 3000); // Retry after 3 seconds
   });
 
   helperClient.on('close', () => {
     console.log('Main App: Connection to root helper closed.');
-    helperClient = null; // Reset client
+    helperClient = null;
     global.helperClient = null;
   });
 }
