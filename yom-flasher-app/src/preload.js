@@ -2,14 +2,24 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('electronAPI', {
-    selectImage: () => ipcRenderer.invoke('dialog:selectImage'), // Existing
-    listDevices: () => ipcRenderer.invoke('system:listDevices'), // Existing
-    startFlash: (imagePath, devicePath) => ipcRenderer.invoke('flash:start', imagePath, devicePath), // New
-    onFlashProgress: (callback) => ipcRenderer.on('flash:progress', (_event, value) => callback(value)), // Existing
-    // For removing listener later if needed:
-    removeFlashProgressListener: (callback) => ipcRenderer.removeListener('flash:progress', callback), // Existing
-    extendPartition: (devicePath, partitionNumber) => ipcRenderer.invoke('partition:extend', devicePath, partitionNumber), // Existing
-    safeEject: (devicePath) => ipcRenderer.invoke('device:eject', devicePath), // Existing
-    showErrorDialog: (title, content) => ipcRenderer.send('dialog:showError', title, content), // New
-    showSuccessDialog: (title, content) => ipcRenderer.send('dialog:showSuccess', title, content) // New
+    // File selection and validation
+    selectImage: (options) => ipcRenderer.invoke('dialog:selectImage', options), // Enhanced to accept options
+    validateDraggedFile: (fileName) => ipcRenderer.invoke('file:validateDraggedFile', fileName), // New: Smart drag-and-drop
+    getFileInfo: (filePath) => ipcRenderer.invoke('file:getInfo', filePath), // New: Get file information
+    
+    // Device management
+    listDevices: () => ipcRenderer.invoke('system:listDevices'),
+    
+    // Flash operations
+    startFlash: (imagePath, devicePath) => ipcRenderer.invoke('flash:start', imagePath, devicePath),
+    onFlashProgress: (callback) => ipcRenderer.on('flash:progress', (_event, value) => callback(value)),
+    removeFlashProgressListener: (callback) => ipcRenderer.removeListener('flash:progress', callback),
+    
+    // Post-flash operations
+    extendPartition: (devicePath, partitionNumber) => ipcRenderer.invoke('partition:extend', devicePath, partitionNumber),
+    safeEject: (devicePath) => ipcRenderer.invoke('device:eject', devicePath),
+    
+    // Dialog helpers
+    showErrorDialog: (title, content) => ipcRenderer.send('dialog:showError', title, content),
+    showSuccessDialog: (title, content) => ipcRenderer.send('dialog:showSuccess', title, content)
 });

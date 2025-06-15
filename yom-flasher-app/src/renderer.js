@@ -1,112 +1,307 @@
-// src/renderer.js
+// YOM Flash Tool - Renderer Process
 document.addEventListener('DOMContentLoaded', () => {
+    // UI Elements
     const selectImageButton = document.getElementById('select-image-button');
+    const uploadArea = document.getElementById('upload-area');
+    const fileInput = document.getElementById('file-input');
+    const selectedFile = document.getElementById('selected-file');
+    const fileName = document.getElementById('file-name');
+    const fileSize = document.getElementById('file-size');
     const selectedImagePathText = document.getElementById('selected-image-path-text');
-    let currentSelectedImagePath = null;
-
-    // Global Message Helper Function
+    
+    const deviceSelectionView = document.getElementById('device-selection-view');
+    const refreshDevicesButton = document.getElementById('refresh-devices-button');
+    const deviceListContainer = document.getElementById('device-list-container');
+    const selectedDeviceInfoText = document.getElementById('selected-device-info-text');
+    
+    const flashingControlsView = document.getElementById('flashing-controls-view');
+    const startFlashingButton = document.getElementById('start-flashing-button');
+    const flashingProgressView = document.getElementById('flashing-progress-view');
+    const progressBar = document.getElementById('progress-bar');
+    const progressSpeedText = document.getElementById('progress-speed-text');
+    const progressRawOutput = document.getElementById('progress-raw-output');
+    
     const globalMessageContainer = document.getElementById('global-message-container');
 
-    /**
-     * Displays a global message at the top of the application.
-     * @param {string} message The message to display.
-     * @param {'info' | 'success' | 'error'} [type='info'] The type of message, affecting its appearance.
-     * @param {number} [duration=5000] How long the message should be visible (in ms) for 'info' and 'success' types. Error messages persist.
-     */
+    // State
+    let currentSelectedImagePath = null;
+    let currentSelectedDevicePath = null;
+    let availableDevices = [];
+
+    // Utility Functions
     function showGlobalMessage(message, type = 'info', duration = 5000) {
         if (!globalMessageContainer) return;
 
         globalMessageContainer.textContent = message;
-        globalMessageContainer.className = 'message-container'; // Reset classes
-        globalMessageContainer.classList.add(type); // Add error, success, or info
+        globalMessageContainer.className = 'message-container';
+        globalMessageContainer.classList.add(type);
         globalMessageContainer.style.display = 'block';
 
         if (type === 'info' || type === 'success') {
             setTimeout(() => {
-                if (globalMessageContainer.textContent === message) { // Hide only if message hasn't changed
+                if (globalMessageContainer.textContent === message) {
                     globalMessageContainer.style.display = 'none';
                 }
             }, duration);
         }
-        // For 'error' type, it persists until explicitly hidden or replaced.
     }
 
-    // Event listener for the "Select Image" button.
-    // Handles opening the file dialog and updating the UI with the selected path.
+    function formatFileSize(bytes) {
+        if (bytes === 0) return '0 Bytes';
+        const k = 1024;
+        const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    }
+
+    function showView(viewId) {
+        const views = [
+            'image-selection-view',
+            'device-selection-view', 
+            'flashing-controls-view',
+            'flashing-progress-view'
+        ];
+        
+        views.forEach(view => {
+            const element = document.getElementById(view);
+            if (element) {
+                element.style.display = view === viewId ? 'block' : 'none';
+            }
+        });
+    }
+
+    function checkShowFlashingButton() {
+        if (currentSelectedImagePath && currentSelectedDevicePath) {
+            if (flashingControlsView) flashingControlsView.style.display = 'block';
+        } else {
+            if (flashingControlsView) flashingControlsView.style.display = 'none';
+        }
+    }
+
+    function resetToInitialState() {
+        showView('image-selection-view');
+        
+        // Reset file selection
+        currentSelectedImagePath = null;
+        if (selectedImagePathText) selectedImagePathText.textContent = 'None';
+        if (selectedFile) selectedFile.style.display = 'none';
+        if (fileInput) fileInput.value = '';
+        
+        // Reset device selection
+        currentSelectedDevicePath = null;
+        if (selectedDeviceInfoText) selectedDeviceInfoText.textContent = 'None';
+        if (deviceListContainer) {
+            deviceListContainer.innerHTML = '<p>Click "refresh device list" to load devices.</p>';
+        }
+        availableDevices = [];
+        
+        // Reset progress
+        if (progressBar) {
+            progressBar.style.width = '0%';
+            progressBar.textContent = '0%';
+        }
+        if (progressSpeedText) progressSpeedText.textContent = 'Speed: -';
+        if (progressRawOutput) progressRawOutput.textContent = '';
+        
+        // Hide controls and messages
+        checkShowFlashingButton();
+        if (globalMessageContainer) globalMessageContainer.style.display = 'none';
+        
+        // Re-enable buttons
+        [selectImageButton, refreshDevicesButton, startFlashingButton].forEach(btn => {
+            if (btn) btn.disabled = false;
+        });
+    }
+
+    // File Selection Handlers
+    function processFileWithPath(file, fullPath) {
+        if (!file || !fullPath) return;
+        
+        currentSelectedImagePath = fullPath; // Use the full path provided
+        
+        if (fileName) fileName.textContent = file.name;
+        if (fileSize) fileSize.textContent = formatFileSize(file.size || 0);
+        if (selectedFile) selectedFile.style.display = 'block';
+        
+        console.log('Selected image with full path:', currentSelectedImagePath);
+        switchToDeviceSelectionView();
+    }
+
+    // Upload area handlers - Use Electron dialog instead of file input
+    if (uploadArea) {
+        uploadArea.addEventListener('click', async () => {
+            try {
+                const filePath = await window.electronAPI.selectImage();
+                if (filePath) {
+                    currentSelectedImagePath = filePath;
+                    
+                    // Extract filename and update UI
+                    const selectedFileName = filePath.split('/').pop() || filePath.split('\\').pop();
+                    
+                    // Update UI elements using getElementById to avoid conflicts
+                    if (fileName) fileName.textContent = selectedFileName;
+                    if (fileSize) fileSize.textContent = 'Getting file size...';
+                    if (selectedFile) selectedFile.style.display = 'block';
+                    
+                    // Try to get file info for better display
+                    try {
+                        const fileInfo = await window.electronAPI.getFileInfo(filePath);
+                        if (fileInfo.success && fileSize) {
+                            fileSize.textContent = formatFileSize(fileInfo.size);
+                        }
+                    } catch (error) {
+                        console.warn('Could not get file info:', error);
+                        if (fileSize) fileSize.textContent = 'Unknown size';
+                    }
+                    
+                    console.log('Selected image via click:', currentSelectedImagePath);
+                    switchToDeviceSelectionView();
+                }
+            } catch (error) {
+                console.error('Error selecting image:', error);
+                showGlobalMessage('Error selecting file: ' + error.message, 'error');
+            }
+        });
+        
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadArea.style.borderColor = '#00FF44';
+            uploadArea.style.background = 'rgba(0, 255, 68, 0.1)';
+        });
+        
+        uploadArea.addEventListener('dragleave', (e) => {
+            e.preventDefault();
+            uploadArea.style.borderColor = 'rgba(0, 255, 68, 0.3)';
+            uploadArea.style.background = 'transparent';
+        });
+        
+        uploadArea.addEventListener('drop', async (e) => {
+            e.preventDefault();
+            uploadArea.style.borderColor = 'rgba(0, 255, 68, 0.3)';
+            uploadArea.style.background = 'transparent';
+            
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                const file = files[0];
+                console.log('Dropped file:', file.name);
+                
+                showGlobalMessage(`Locating "${file.name}"...`, 'info', 2000);
+                
+                try {
+                    // Try to find the dragged file in common locations
+                    const result = await window.electronAPI.validateDraggedFile(file.name);
+                    
+                    if (result.success && result.found) {
+                        // File found! Use it directly
+                        currentSelectedImagePath = result.path;
+                        
+                        // Update UI elements
+                        if (fileName) fileName.textContent = result.name;
+                        if (fileSize) fileSize.textContent = formatFileSize(result.size);
+                        if (selectedFile) selectedFile.style.display = 'block';
+                        
+                        showGlobalMessage(`Successfully located: ${result.name}`, 'success', 2000);
+                        console.log('Auto-selected dragged file:', currentSelectedImagePath);
+                        
+                        switchToDeviceSelectionView();
+                    } else {
+                        // File not found - fall back to dialog
+                        showGlobalMessage(`Could not locate "${file.name}". Please select it manually...`, 'info', 3000);
+                        
+                        setTimeout(async () => {
+                            try {
+                                const filePath = await window.electronAPI.selectImage({ 
+                                    suggestedFilename: file.name 
+                                });
+                                
+                                if (filePath) {
+                                    const selectedFileName = filePath.split('/').pop() || filePath.split('\\').pop();
+                                    
+                                    if (selectedFileName === file.name) {
+                                        showGlobalMessage(`Perfect! Selected the dragged file: ${file.name}`, 'success', 2000);
+                                    } else {
+                                        showGlobalMessage(`Selected: ${selectedFileName}`, 'info', 2000);
+                                    }
+                                    
+                                    currentSelectedImagePath = filePath;
+                                    
+                                    if (fileName) fileName.textContent = selectedFileName;
+                                    if (fileSize) fileSize.textContent = formatFileSize(file.size || 0);
+                                    if (selectedFile) selectedFile.style.display = 'block';
+                                    
+                                    console.log('Selected image after drag-drop dialog:', currentSelectedImagePath);
+                                    switchToDeviceSelectionView();
+                                } else {
+                                    showGlobalMessage('File selection cancelled', 'info', 2000);
+                                }
+                            } catch (error) {
+                                console.error('Error in drag-drop file selection:', error);
+                                showGlobalMessage('Error selecting file: ' + error.message, 'error');
+                            }
+                        }, 500);
+                    }
+                } catch (error) {
+                    console.error('Error validating dragged file:', error);
+                    showGlobalMessage('Error processing dragged file: ' + error.message, 'error');
+                }
+            }
+        });
+    }
+
+    // Legacy button support - Keep original working logic
     if (selectImageButton) {
         selectImageButton.addEventListener('click', async () => {
             try {
                 const filePath = await window.electronAPI.selectImage();
                 if (filePath) {
-                    selectedImagePathText.textContent = filePath;
                     currentSelectedImagePath = filePath;
+                    if (selectedImagePathText) {
+                        selectedImagePathText.textContent = filePath;
+                    }
+                    
+                    // Extract filename and update UI
+                    const selectedFileName = filePath.split('/').pop() || filePath.split('\\').pop();
+                    
+                    // Update new UI elements
+                    if (fileName) fileName.textContent = selectedFileName;
+                    if (fileSize) fileSize.textContent = 'Getting file size...';
+                    if (selectedFile) selectedFile.style.display = 'block';
+                    
+                    // Try to get file info for better display
+                    try {
+                        const fileInfo = await window.electronAPI.getFileInfo(filePath);
+                        if (fileInfo.success && fileSize) {
+                            fileSize.textContent = formatFileSize(fileInfo.size);
+                        }
+                    } catch (error) {
+                        console.warn('Could not get file info:', error);
+                        if (fileSize) fileSize.textContent = 'Unknown size';
+                    }
+                    
                     console.log('Selected image path:', filePath);
-                    // TODO: Store this path for the next step in the workflow
-                    if(window.switchToDeviceSelectionView) window.switchToDeviceSelectionView(); // Switch to device selection view
-                } else {
-                    // selectedImagePathText.textContent = 'No file selected.'; // Or keep previous
-                    // showGlobalMessage('Image selection was cancelled.', 'info'); // Optional
-                    console.log('File selection cancelled or no file selected.');
+                    switchToDeviceSelectionView();
                 }
             } catch (error) {
                 console.error('Error selecting image:', error);
-                selectedImagePathText.textContent = 'Error selecting file.';
-            }
-        });
-    } else {
-        console.error('Select image button not found.');
-    }
-
-    // --- Device Selection Elements and Logic ---
-    const deviceSelectionView = document.getElementById('device-selection-view');
-    const refreshDevicesButton = document.getElementById('refresh-devices-button'); // Button to refresh the list of devices
-    const deviceListContainer = document.getElementById('device-list-container'); // Container for the list of devices
-    const selectedDeviceInfoText = document.getElementById('selected-device-info-text');
-    let currentSelectedDevicePath = null;
-    let availableDevices = []; // To store the fetched device list
-
-    // Placeholder: Simple view switching logic (can be improved later)
-    // For now, assume image selection completion will make device view visible.
-    // Example: document.getElementById('image-selection-view').style.display = 'none';
-    //          deviceSelectionView.style.display = 'block';
-
-    // Event listener for the "Refresh Devices" button.
-    // Fetches and displays the list of available block devices.
-    if (refreshDevicesButton) {
-        refreshDevicesButton.addEventListener('click', async () => {
-            refreshDevicesButton.disabled = true;
-            deviceListContainer.innerHTML = '<p>Loading devices...</p>'; // Show loading state
-            try {
-                const result = await window.electronAPI.listDevices();
-                if (result.error) {
-                    showGlobalMessage(result.message || 'An unknown error occurred while listing devices.', 'error');
-                    deviceListContainer.innerHTML = '<p>Failed to load devices. Check messages above.</p>';
-                    availableDevices = [];
-                    return;
+                if (selectedImagePathText) {
+                    selectedImagePathText.textContent = 'Error selecting file.';
                 }
-
-                availableDevices = result; // Store the devices
-                renderDeviceList(availableDevices);
-
-            } catch (error) { // Should not happen if main process returns {error: true} structure
-                console.error('Error fetching devices in renderer:', error);
-                deviceListContainer.innerHTML = `<p style="color: red;">Error fetching devices: ${error.message}</p>`;
-                availableDevices = [];
-            } finally {
-                refreshDevicesButton.disabled = false;
+                showGlobalMessage('Error selecting file: ' + error.message, 'error');
             }
         });
-    } else {
-        console.error('Refresh devices button not found.');
     }
 
-    /**
-     * Renders the list of available block devices in the UI.
-     * @param {Array<Object>} devices - An array of device objects from `systemUtils.listBlockDevices`.
-     * Each object should have `path`, `model`, `size`, and `isOS` properties.
-     */
+    // Device Selection
+    function switchToDeviceSelectionView() {
+        showView('device-selection-view');
+        if (refreshDevicesButton) refreshDevicesButton.click();
+        checkShowFlashingButton();
+    }
+
     function renderDeviceList(devices) {
-        deviceListContainer.innerHTML = ''; // Clear previous list or loading message
+        if (!deviceListContainer) return;
+        
+        deviceListContainer.innerHTML = '';
 
         if (!devices || devices.length === 0) {
             deviceListContainer.innerHTML = '<p>No compatible devices found. Ensure SSD is connected and try refreshing.</p>';
@@ -114,40 +309,30 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         const ul = document.createElement('ul');
-        ul.style.listStyleType = 'none';
-        ul.style.padding = '0';
-
         devices.forEach(device => {
             const li = document.createElement('li');
-            li.style.padding = '8px';
-            li.style.borderBottom = '1px solid #eee';
-            li.style.cursor = 'pointer';
-
+            
             let labelText = `${device.path} - ${device.model} (${(device.size / (1024**3)).toFixed(2)} GB)`;
             let isDisabled = false;
-            let tooltip = '';
-
+            
             if (device.isOS) {
-                labelText += ' <strong style="color: orange;">(OS Drive)</strong>';
+                labelText += ' <strong style="color: #00FF44;">(OS Drive)</strong>';
                 isDisabled = true;
-                tooltip = 'This is your operating system drive and cannot be selected.';
+                li.title = 'This is your operating system drive and cannot be selected.';
             }
-            // TODO: Implement source drive check if currentSelectedImagePath is set and device.path matches its source.
-            // For now, only OS drive check from systemUtils is used.
 
             li.innerHTML = labelText;
+            
             if (isDisabled) {
-                // li.style.opacity = '0.5'; // Covered by .disabled-item class
-                // li.style.cursor = 'not-allowed'; // Covered by .disabled-item class
                 li.classList.add('disabled-item');
-                li.title = tooltip;
             } else {
-                // Hover effects are now handled by CSS :not(.disabled-item):hover
                 li.addEventListener('click', () => {
                     currentSelectedDevicePath = device.path;
-                    selectedDeviceInfoText.textContent = `${device.path} - ${device.model}`;
+                    if (selectedDeviceInfoText) {
+                        selectedDeviceInfoText.textContent = `${device.path} - ${device.model}`;
+                    }
 
-                    // Handle selected item styling via class
+                    // Update selection styling
                     const currentSelection = ul.querySelector('li.selected-item');
                     if (currentSelection) {
                         currentSelection.classList.remove('selected-item');
@@ -155,8 +340,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     li.classList.add('selected-item');
 
                     console.log('Selected device:', currentSelectedDevicePath);
-                    // TODO: Store this for the flashing step.
-                    checkShowFlashingButton(); // Check if we can show flashing button
+                    checkShowFlashingButton();
                 });
             }
             ul.appendChild(li);
@@ -164,152 +348,69 @@ document.addEventListener('DOMContentLoaded', () => {
         deviceListContainer.appendChild(ul);
     }
 
-    /**
-     * Switches the application to the device selection view.
-     * Typically called after an image has been successfully selected.
-     * It also triggers an automatic refresh of the device list.
-     */
-    window.switchToDeviceSelectionView = () => { // Original function modified
-        showView('device-selection');
-        if(refreshDevicesButton) refreshDevicesButton.click(); // Auto-refresh devices on view switch
-        // Check if we can show flashing button - this is now done when a device is selected or image selected.
-        // currentSelectedImagePath should be set before this is called.
-        checkShowFlashingButton();
-    };
-
-    // --- Flashing Controls and Progress Elements ---
-    const flashingControlsView = document.getElementById('flashing-controls-view');
-    const startFlashingButton = document.getElementById('start-flashing-button'); // Button to initiate the flashing process
-    const flashingProgressView = document.getElementById('flashing-progress-view');
-    const progressBar = document.getElementById('progress-bar');
-    const progressSpeedText = document.getElementById('progress-speed-text');
-    const progressRawOutput = document.getElementById('progress-raw-output');
-    // const cancelFlashingButton = document.getElementById('cancel-flashing-button'); // For future
-
-    /**
-     * Resets the application UI to its initial state, clearing selections,
-     * progress, and messages, and returning to the image selection view.
-     */
-    function resetToInitialState() {
-        showView('image-selection');
-
-        selectedImagePathText.textContent = 'None';
-        currentSelectedImagePath = null;
-        selectedDeviceInfoText.textContent = 'None';
-        currentSelectedDevicePath = null;
-
-        deviceListContainer.innerHTML = '<p>Click "Refresh Device List" to load devices.</p>';
-        availableDevices = []; // Clear cached devices
-
-        checkShowFlashingButton(); // This will hide flashing-controls-view
-
-        if (progressBar) {
-            progressBar.style.width = '0%';
-            progressBar.textContent = '0%';
-            progressBar.style.backgroundColor = '#00FF44'; // YOM Green
-        }
-        if (progressSpeedText) progressSpeedText.textContent = 'Speed: -';
-        if (progressRawOutput) progressRawOutput.textContent = '';
-        
-        // Ensure flashing progress view is hidden if not already by showView
-        if (flashingProgressView) flashingProgressView.style.display = 'none';
-
-        if (globalMessageContainer) globalMessageContainer.style.display = 'none';
-
-        // Re-enable buttons that might have been disabled if reset is called after partial failure
-        if(selectImageButton) selectImageButton.disabled = false;
-        if(refreshDevicesButton) refreshDevicesButton.disabled = false;
-        if(startFlashingButton) startFlashingButton.disabled = false; // Will be hidden by checkShowFlashingButton if needed
+    if (refreshDevicesButton) {
+        refreshDevicesButton.addEventListener('click', async () => {
+            refreshDevicesButton.disabled = true;
+            deviceListContainer.innerHTML = '<p>Loading devices...</p>';
+            
+            try {
+                const result = await window.electronAPI.listDevices();
+                if (result.error) {
+                    showGlobalMessage(result.message || 'Failed to list devices.', 'error');
+                    deviceListContainer.innerHTML = '<p>Failed to load devices. Check messages above.</p>';
+                    availableDevices = [];
+                } else {
+                    availableDevices = result;
+                    renderDeviceList(availableDevices);
+                }
+            } catch (error) {
+                console.error('Error fetching devices:', error);
+                deviceListContainer.innerHTML = `<p style="color: #dc3545;">Error fetching devices: ${error.message}</p>`;
+                availableDevices = [];
+            } finally {
+                refreshDevicesButton.disabled = false;
+            }
+        });
     }
 
-    /**
-     * Manages the visibility of different application views.
-     * @param {'image-selection' | 'device-selection' | 'flashing-controls' | 'flashing-progress'} viewId - The ID of the view to display.
-     * 'flashing-controls' can be shown in conjunction with 'device-selection' or 'image-selection' (though typically shown after both are selected).
-     * 'flashing-progress' is typically exclusive.
-     */
-    function showView(viewId) {
-        const imageSelView = document.getElementById('image-selection-view');
-        // deviceSelectionView is already defined
-        // flashingControlsView and flashingProgressView are already defined
-
-        if(imageSelView) imageSelView.style.display = 'none';
-        if(deviceSelectionView) deviceSelectionView.style.display = 'none';
-        if(flashingControlsView) flashingControlsView.style.display = 'none';
-        if(flashingProgressView) flashingProgressView.style.display = 'none';
-
-        if (viewId === 'image-selection') {
-            if(imageSelView) imageSelView.style.display = 'block';
-        } else if (viewId === 'device-selection') {
-            if(deviceSelectionView) deviceSelectionView.style.display = 'block';
-        } else if (viewId === 'flashing-controls') { // This view is an addition to others
-            if(flashingControlsView) flashingControlsView.style.display = 'block';
-        } else if (viewId === 'flashing-progress') {
-            if(flashingProgressView) flashingProgressView.style.display = 'block';
-        }
-    }
-
-    /**
-     * Checks if both an image and a device have been selected, and if so,
-     * displays the flashing controls view (which includes the 'Start Flashing' button).
-     * Otherwise, it hides the flashing controls view.
-     */
-    function checkShowFlashingButton() {
-        if (currentSelectedImagePath && currentSelectedDevicePath) {
-            if(flashingControlsView) flashingControlsView.style.display = 'block';
-        } else {
-            if(flashingControlsView) flashingControlsView.style.display = 'none';
-        }
-    }
-
-    // Initial check for showing flashing button, in case selections are restored from a future persisted state.
-    checkShowFlashingButton();
-
-    /**
-     * Handles progress updates received from the main process during flashing.
-     * Updates the progress bar, speed text, and raw output log.
-     * @param {object} progressData - The progress data object.
-     * @param {number} [progressData.progress] - The current progress percentage.
-     * @param {string} [progressData.speed] - The current flashing speed.
-     * @param {string} [progressData.rawLine] - The raw output line from the flashing utility.
-     */
+    // Flash Progress Handler
     const handleFlashProgress = (progressData) => {
-        // console.log('Renderer flash progress:', progressData); // Can be noisy
         if (progressData.progress !== undefined) {
             const percent = Math.round(progressData.progress);
-            progressBar.style.width = `${percent}%`;
-            progressBar.textContent = `${percent}%`; // Ensure this line is using the rounded percent
+            if (progressBar) {
+                progressBar.style.width = `${percent}%`;
+                progressBar.textContent = `${percent}%`;
+            }
         }
-        if (progressData.speed) {
+        if (progressData.speed && progressSpeedText) {
             progressSpeedText.textContent = `Speed: ${progressData.speed}`;
         }
-        if (progressData.rawLine) {
-             progressRawOutput.textContent += progressData.rawLine + '\n';
-             progressRawOutput.scrollTop = progressRawOutput.scrollHeight; // Auto-scroll to bottom
+        if (progressData.rawLine && progressRawOutput) {
+            progressRawOutput.textContent += progressData.rawLine + '\n';
+            progressRawOutput.scrollTop = progressRawOutput.scrollHeight;
         }
-        if (progressData.progress === 100) {
+        if (progressData.progress === 100 && progressSpeedText) {
             progressSpeedText.textContent = 'Finalizing...';
         }
     };
-    window.electronAPI.onFlashProgress(handleFlashProgress);
-    // TODO: Remember to clean up this listener if the component/view is ever destroyed, e.g., by storing the return of onFlashProgress and calling it.
-    // window.electronAPI.removeFlashProgressListener(handleFlashProgress);
 
+    if (window.electronAPI && window.electronAPI.onFlashProgress) {
+        window.electronAPI.onFlashProgress(handleFlashProgress);
+    }
 
-    // Event listener for the "Start Flashing" button.
-    // This orchestrates the entire flashing sequence including validation, confirmation,
-    // calling main process operations, and handling UI updates for progress and completion.
+    // Flash Operation
     if (startFlashingButton) {
         startFlashingButton.addEventListener('click', async () => {
-            // --- 1. Initial Validation ---
-            if (globalMessageContainer) globalMessageContainer.style.display = 'none'; // Clear global message before critical action
+            // Validation
+            if (globalMessageContainer) globalMessageContainer.style.display = 'none';
             if (!currentSelectedImagePath || !currentSelectedDevicePath) {
-                // showErrorDialog is fine here as it's a direct user action validation
-                window.electronAPI.showErrorDialog('Input Missing', 'Please select an image file and a target device first.');
+                if (window.electronAPI && window.electronAPI.showErrorDialog) {
+                    window.electronAPI.showErrorDialog('Input Missing', 'Please select an image file and a target device first.');
+                }
                 return;
             }
 
-            // --- 2. User Confirmation ---
+            // Confirmation
             const confirmed = confirm(
                 `WARNING: You are about to flash:\n\n` +
                 `Image: ${currentSelectedImagePath}\n` +
@@ -319,123 +420,153 @@ document.addEventListener('DOMContentLoaded', () => {
             );
 
             if (!confirmed) {
-                console.log('Flashing cancelled by user confirmation.');
+                console.log('Flashing cancelled by user.');
                 return;
             }
 
-            // --- 3. UI Setup for Flashing ---
-            // Reset progress UI for a new flashing attempt
-            progressBar.style.width = '0%';
-            progressBar.textContent = '0%';
-            progressBar.style.backgroundColor = '#00FF44'; // YOM Green
-            progressSpeedText.textContent = 'Speed: -';
-            progressRawOutput.textContent = '';
+            // Setup UI for flashing
+            if (progressBar) {
+                progressBar.style.width = '0%';
+                progressBar.textContent = '0%';
+            }
+            if (progressSpeedText) progressSpeedText.textContent = 'Speed: -';
+            if (progressRawOutput) progressRawOutput.textContent = '';
 
+            showView('flashing-progress-view');
 
-            showView('flashing-progress'); // Show only progress view
-            // Hide device selection and image selection views explicitly if not handled by showView
-            if(document.getElementById('image-selection-view')) document.getElementById('image-selection-view').style.display = 'none';
-            if(document.getElementById('device-selection-view')) document.getElementById('device-selection-view').style.display = 'none';
-            if(flashingControlsView) flashingControlsView.style.display = 'none';
+            // Disable controls
+            [selectImageButton, refreshDevicesButton, startFlashingButton].forEach(btn => {
+                if (btn) btn.disabled = true;
+            });
 
-
-            progressRawOutput.textContent = ''; // Clear raw output again just in case
-            // Disable primary action buttons and device list items
-            if(selectImageButton) selectImageButton.disabled = true;
-            if(refreshDevicesButton) refreshDevicesButton.disabled = true;
-            startFlashingButton.disabled = true;
             const listItems = deviceListContainer.querySelectorAll('ul li:not(.disabled-item)');
             listItems.forEach(item => item.classList.add('disabled-during-flash'));
 
-            // --- 4. Flashing Operation Sequence (Flash, Extend, Eject) ---
             try {
-                // --- 4a. Start Flash ---
+                // Flash operation
                 const result = await window.electronAPI.startFlash(currentSelectedImagePath, currentSelectedDevicePath);
+                
                 if (result.success) {
-                    progressBar.textContent = 'Flash Done!';
-                    progressBar.style.backgroundColor = '#28a745'; // Green for success
-                    progressSpeedText.textContent = 'Flash completed. Now attempting to extend partition...';
-                    progressRawOutput.textContent += "\nFlash completed successfully.\nStarting partition extension...\n";
-                    progressRawOutput.scrollTop = progressRawOutput.scrollHeight;
+                    if (progressBar) {
+                        progressBar.textContent = 'Flash Done!';
+                        progressBar.style.background = 'linear-gradient(90deg, #28a745 0%, #20c997 100%)';
+                    }
+                    if (progressSpeedText) {
+                        progressSpeedText.textContent = 'Flash completed. Now attempting to extend partition...';
+                    }
+                    if (progressRawOutput) {
+                        progressRawOutput.textContent += "\nFlash completed successfully.\nStarting partition extension...\n";
+                        progressRawOutput.scrollTop = progressRawOutput.scrollHeight;
+                    }
 
-                    // --- 4b. Extend Partition ---
+                    // Extend partition
                     try {
-                        const extendResult = await window.electronAPI.extendPartition(currentSelectedDevicePath, 3); // Assuming partition 3
+                        const extendResult = await window.electronAPI.extendPartition(currentSelectedDevicePath, 3);
                         if (extendResult.success) {
-                            progressSpeedText.textContent = 'Partition extended. Now attempting safe eject...';
-                            progressRawOutput.textContent += extendResult.message + "\nStarting safe eject...\n";
-                            progressRawOutput.scrollTop = progressRawOutput.scrollHeight;
+                            if (progressSpeedText) {
+                                progressSpeedText.textContent = 'Partition extended. Now attempting safe eject...';
+                            }
+                            if (progressRawOutput) {
+                                progressRawOutput.textContent += extendResult.message + "\nStarting safe eject...\n";
+                                progressRawOutput.scrollTop = progressRawOutput.scrollHeight;
+                            }
 
-                            // --- 4c. Safe Eject ---
+                            // Safe eject
                             try {
                                 const ejectResult = await window.electronAPI.safeEject(currentSelectedDevicePath);
                                 if (ejectResult.success) {
-                                    progressBar.textContent = 'All Done!';
-                                    progressBar.style.backgroundColor = '#28a745'; // Green for overall success
-                                    window.electronAPI.showSuccessDialog('Operation Successful', 'All operations completed successfully! The device can now be safely removed.');
-                                    resetToInitialState(); // Reset UI to initial state on full success
-                                } else { // Eject failed
-                                    if (globalMessageContainer) globalMessageContainer.style.display = 'none';
-                                    progressSpeedText.textContent = `Eject Error: ${ejectResult.message}`;
-                                    progressRawOutput.textContent += `Eject Error: ${ejectResult.message}\n`;
-                                    window.electronAPI.showErrorDialog('Device Eject Failed', ejectResult.message || 'An unknown error occurred during device ejection. Please ensure the device is not in use and try ejecting manually if needed.');
+                                    if (progressBar) progressBar.textContent = 'All Done!';
+                                    if (window.electronAPI && window.electronAPI.showSuccessDialog) {
+                                        window.electronAPI.showSuccessDialog('Operation Successful', 'All operations completed successfully! The device can now be safely removed.');
+                                    }
+                                    resetToInitialState();
+                                } else {
+                                    if (progressSpeedText) {
+                                        progressSpeedText.textContent = `Eject Error: ${ejectResult.message}`;
+                                    }
+                                    if (progressRawOutput) {
+                                        progressRawOutput.textContent += `Eject Error: ${ejectResult.message}\n`;
+                                    }
+                                    if (window.electronAPI && window.electronAPI.showErrorDialog) {
+                                        window.electronAPI.showErrorDialog('Device Eject Failed', ejectResult.message || 'Failed to eject device.');
+                                    }
                                 }
-                            } catch (ejectError) { // Error from safeEject call
-                                if (globalMessageContainer) globalMessageContainer.style.display = 'none';
-                                console.error('Error calling safeEject in renderer:', ejectError);
-                                progressSpeedText.textContent = `Eject Error: ${ejectError.message}`;
-                                progressRawOutput.textContent += `Eject Error: ${ejectError.message}\n`;
-                                window.electronAPI.showErrorDialog('Device Eject Failed', ejectError.message || 'An unexpected error occurred during device ejection.');
+                            } catch (ejectError) {
+                                console.error('Error calling safeEject:', ejectError);
+                                if (progressSpeedText) {
+                                    progressSpeedText.textContent = `Eject Error: ${ejectError.message}`;
+                                }
+                                if (progressRawOutput) {
+                                    progressRawOutput.textContent += `Eject Error: ${ejectError.message}\n`;
+                                }
+                                if (window.electronAPI && window.electronAPI.showErrorDialog) {
+                                    window.electronAPI.showErrorDialog('Device Eject Failed', ejectError.message || 'Unexpected error during device ejection.');
+                                }
                             }
-                        } else { // Partition extension failed
-                            if (globalMessageContainer) globalMessageContainer.style.display = 'none';
-                            progressSpeedText.textContent = `Partition Extension Error: ${extendResult.message}`;
-                            progressRawOutput.textContent += `Partition Extension Error: ${extendResult.message}\n`;
-                            window.electronAPI.showErrorDialog('Partition Extension Failed', extendResult.message || 'An unknown error occurred during partition extension.');
+                        } else {
+                            if (progressSpeedText) {
+                                progressSpeedText.textContent = `Partition Extension Error: ${extendResult.message}`;
+                            }
+                            if (progressRawOutput) {
+                                progressRawOutput.textContent += `Partition Extension Error: ${extendResult.message}\n`;
+                            }
+                            if (window.electronAPI && window.electronAPI.showErrorDialog) {
+                                window.electronAPI.showErrorDialog('Partition Extension Failed', extendResult.message || 'Failed to extend partition.');
+                            }
                         }
-                    } catch (extendError) { // Error from extendPartition call
-                        if (globalMessageContainer) globalMessageContainer.style.display = 'none';
-                        console.error('Error calling extendPartition in renderer:', extendError);
-                        progressSpeedText.textContent = `Partition Extension Error: ${extendError.message}`;
-                        progressRawOutput.textContent += `Partition Extension Error: ${extendError.message}\n`;
-                        window.electronAPI.showErrorDialog('Partition Extension Failed', extendError.message || 'An unexpected error occurred during partition extension.');
+                    } catch (extendError) {
+                        console.error('Error calling extendPartition:', extendError);
+                        if (progressSpeedText) {
+                            progressSpeedText.textContent = `Partition Extension Error: ${extendError.message}`;
+                        }
+                        if (progressRawOutput) {
+                            progressRawOutput.textContent += `Partition Extension Error: ${extendError.message}\n`;
+                        }
+                        if (window.electronAPI && window.electronAPI.showErrorDialog) {
+                            window.electronAPI.showErrorDialog('Partition Extension Failed', extendError.message || 'Unexpected error during partition extension.');
+                        }
                     }
-                } else { // Flashing failed
-                    if (globalMessageContainer) globalMessageContainer.style.display = 'none';
-                    progressBar.textContent = 'Error!';
-                    progressBar.style.backgroundColor = '#dc3545'; // Red for error
-                    progressSpeedText.textContent = `Error: ${result.message}`;
-                    progressRawOutput.textContent += `Flashing Error: ${result.message}\n`;
-                    window.electronAPI.showErrorDialog('Flashing Failed', result.message || 'An unknown error occurred during flashing.');
+                } else {
+                    if (progressBar) {
+                        progressBar.textContent = 'Error!';
+                        progressBar.style.background = 'linear-gradient(90deg, #dc3545 0%, #c82333 100%)';
+                    }
+                    if (progressSpeedText) {
+                        progressSpeedText.textContent = `Error: ${result.message}`;
+                    }
+                    if (progressRawOutput) {
+                        progressRawOutput.textContent += `Flashing Error: ${result.message}\n`;
+                    }
+                    if (window.electronAPI && window.electronAPI.showErrorDialog) {
+                        window.electronAPI.showErrorDialog('Flashing Failed', result.message || 'Flashing operation failed.');
+                    }
                 }
-            } catch (error) { // Catch-all for critical errors in the sequence calls
-                if (globalMessageContainer) globalMessageContainer.style.display = 'none';
+            } catch (error) {
                 console.error('Error in operation sequence:', error);
-                progressBar.textContent = 'Critical Error!';
-                progressBar.style.backgroundColor = '#dc3545';
-                progressSpeedText.textContent = `Critical Error: ${error.message}`;
-                window.electronAPI.showErrorDialog('Critical Error', `An unexpected critical error occurred: ${error.message}`);
+                if (progressBar) {
+                    progressBar.textContent = 'Critical Error!';
+                    progressBar.style.background = 'linear-gradient(90deg, #dc3545 0%, #c82333 100%)';
+                }
+                if (progressSpeedText) {
+                    progressSpeedText.textContent = `Critical Error: ${error.message}`;
+                }
+                if (window.electronAPI && window.electronAPI.showErrorDialog) {
+                    window.electronAPI.showErrorDialog('Critical Error', `An unexpected critical error occurred: ${error.message}`);
+                }
             } finally {
-                // --- 5. UI Cleanup / Re-enable controls ---
-                // This block executes regardless of success or failure of the try block.
-                if(selectImageButton) selectImageButton.disabled = false;
-                if(refreshDevicesButton) refreshDevicesButton.disabled = false;
-                startFlashingButton.disabled = false; // Re-enable the start button
-                listItems.forEach(item => item.classList.remove('disabled-during-flash')); // Re-enable list items
-
-                // If not resetToInitialState (i.e. on failure), ensure flashing controls are hidden
-                // if selections are no longer valid or if we want to force user to re-evaluate.
-                // However, resetToInitialState handles this for success cases.
-                // For failure cases, user might want to retry with same selections, so just re-enabling buttons is okay.
-                // The flashing progress view should ideally be hidden or replaced if an error occurred.
-                // For now, it will show the error. A "Go Back" button or similar might be useful for errors.
-                // If resetToInitialState() was called, the startFlashingButton would be hidden by checkShowFlashingButton()
-                // as selections are cleared. If it wasn't called (e.g. on error), selections remain, so start button might reappear.
+                // Re-enable controls
+                [selectImageButton, refreshDevicesButton, startFlashingButton].forEach(btn => {
+                    if (btn) btn.disabled = false;
+                });
+                listItems.forEach(item => item.classList.remove('disabled-during-flash'));
             }
         });
-    } else {
-        console.error('Start flashing button not found.');
     }
 
-    if (globalMessageContainer) globalMessageContainer.style.display = 'none'; // Initial hide
-}); // End of DOMContentLoaded
+    // Make switchToDeviceSelectionView available globally for legacy support
+    window.switchToDeviceSelectionView = switchToDeviceSelectionView;
+
+    // Initialize
+    checkShowFlashingButton();
+    if (globalMessageContainer) globalMessageContainer.style.display = 'none';
+});

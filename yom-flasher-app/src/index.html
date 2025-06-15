@@ -3,64 +3,105 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>YOM Flasher</title>
+    <title>YOM Flash Tool</title>
+    <link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="./styles/main.css">
 </head>
 <body>
     <header id="app-header">
         <div id="logo-container">
-            <img id="logo-symbol" src="./assets/logo-symbol.svg" alt="YOM Symbol"> <!-- Updated src and id -->
-            <span id="logo-text">YOM</span> <!-- Updated id -->
+            <div id="logo-symbol">
+                <svg viewBox="0 0 32 32" fill="currentColor">
+                    <path d="M16 2L8 14h6v16l8-12h-6V2z"/>
+                </svg>
+            </div>
+            <span id="logo-text">YOM</span>
         </div>
     </header>
 
     <main id="app-content">
         <div id="global-message-container" class="message-container" style="display: none;"></div>
+        
         <section id="image-selection-view">
-            <h2>Select Image File</h2>
-            <p>Please select the RAW image file you want to flash to the SSD.</p>
-            <button id="select-image-button">Choose Image File...</button>
-            <div id="selected-image-path-container" style="margin-top: 15px; min-height: 20px;">
-                <p><strong>Selected file:</strong> <span id="selected-image-path-text">None</span></p>
-            </div>
-        </section>
-
-        <!-- Add new view for device selection -->
-        <section id="device-selection-view" style="display: none; width: 100%;"> <!-- Initially hidden -->
-            <h2>Select Target Device</h2>
-            <p>Choose the SSD you want to flash. <strong style="color: red;">WARNING: ALL DATA ON THE SELECTED DEVICE WILL BE ERASED.</strong></p>
-            <button id="refresh-devices-button">Refresh Device List</button>
-            <div id="device-list-container" style="margin-top: 15px; border: 1px solid #ccc; padding: 10px; min-height: 100px; max-height: 300px; overflow-y: auto;">
-                <!-- Devices will be listed here by renderer.js -->
-                <p>Click "Refresh Device List" to load devices.</p>
-            </div>
-            <div id="selected-device-info-container" style="margin-top: 15px;">
-                <p><strong>Selected target:</strong> <span id="selected-device-info-text">None</span></p>
-            </div>
-        </section>
-
-        <!-- Flashing controls and progress view (initially hidden) -->
-        <section id="flashing-controls-view" style="display: none; margin-top: 20px; text-align: center;">
-            <button id="start-flashing-button" style="padding: 12px 25px; font-size: 18px;">Start Flashing</button>
-        </section>
-
-        <section id="flashing-progress-view" style="display: none; width: 80%; margin-top: 20px; text-align: center;">
-            <h2>Flashing in Progress...</h2>
-            <p>Please do not close the application or remove the target device.</p>
-            <div id="progress-bar-container" style="width: 100%; background-color: #e0e0e0; border-radius: 5px; margin-top: 10px;">
-                <div id="progress-bar" style="width: 0%; height: 30px; background-color: #00FF44; /* YOM Green */ border-radius: 5px; text-align: center; line-height: 30px; color: black;">
-                    0%
+            <h1>flash tool</h1>
+            <p class="subtitle">devs, operators, and community — start here.</p>
+            
+            <div class="card">
+                <h2>Select Image File</h2>
+                <p>Please select the RAW image file you want to flash to the SSD.</p>
+                
+                <div class="upload-area" id="upload-area">
+                    <div class="upload-icon">
+                        <svg viewBox="0 0 48 48" fill="currentColor">
+                            <path d="M14 2H6a2 2 0 0 0-2 2v8M2 30v8a2 2 0 0 0 2 2h8M30 2h8a2 2 0 0 1 2 2v8M42 30v8a2 2 0 0 1-2 2h-8M24 12v12M18 18l6-6 6 6"/>
+                        </svg>
+                    </div>
+                    <div class="upload-text">Choose Image File</div>
+                    <div class="upload-subtext">Click to select RAW image file</div>
+                    <input type="file" id="file-input" accept=".img,.raw,.iso,.bin" style="display: none;">
+                </div>
+                
+                <div id="selected-file" class="selected-file" style="display: none;">
+                    <div class="file-name" id="file-name"></div>
+                    <div class="file-size" id="file-size"></div>
+                </div>
+                
+                <button id="select-image-button" style="display: none;">Choose Image File...</button>
+                <div id="selected-image-path-container" style="margin-top: 15px; min-height: 20px; display: none;">
+                    <p><strong>Selected file:</strong> <span id="selected-image-path-text">None</span></p>
                 </div>
             </div>
-            <p id="progress-speed-text" style="margin-top: 10px;">Speed: -</p>
-            <p id="progress-raw-output" style="margin-top: 5px; font-size: 0.8em; color: #555; max-height: 100px; overflow-y: auto; background: #f9f9f9; border: 1px solid #eee; padding: 5px;"></p>
-            <button id="cancel-flashing-button" style="margin-top: 20px; background-color: #cc0000; color: white;" disabled title="Cancel functionality is not yet implemented.">Cancel Flashing (Not Implemented)</button>
+        </section>
+
+        <section id="device-selection-view" style="display: none;">
+            <div class="card">
+                <h2>Select Target Device</h2>
+                <p><strong style="color: #00FF44;">WARNING:</strong> ALL DATA ON THE SELECTED DEVICE WILL BE ERASED.</p>
+                
+                <button id="refresh-devices-button">refresh device list</button>
+                
+                <div id="device-list-container" class="device-list">
+                    <p>Click "refresh device list" to load devices.</p>
+                </div>
+                
+                <div id="selected-device-info-container" class="selected-info">
+                    <p><strong>Selected target:</strong> <span id="selected-device-info-text">None</span></p>
+                </div>
+            </div>
+        </section>
+
+        <section id="flashing-controls-view" style="display: none;">
+            <div class="card text-center">
+                <button id="start-flashing-button" class="flash-button">start flash</button>
+            </div>
+        </section>
+
+        <section id="flashing-progress-view" style="display: none;">
+            <div class="card">
+                <h2>Flashing in Progress</h2>
+                <p>Please do not close the application or remove the target device.</p>
+                
+                <div class="progress-container">
+                    <div class="progress-bar">
+                        <div id="progress-bar" class="progress-fill">0%</div>
+                    </div>
+                    <div id="progress-speed-text" class="progress-text">Speed: -</div>
+                </div>
+                
+                <div id="progress-raw-output" class="raw-output"></div>
+                
+                <button id="cancel-flashing-button" class="cancel-button" disabled 
+                        title="Cancel functionality is not yet implemented.">
+                    cancel flash
+                </button>
+            </div>
         </section>
     </main>
 
     <footer id="app-footer">
         <p>&copy; 2024 YOM. App Version 1.0.0</p>
     </footer>
+
     <script src="./renderer.js"></script>
 </body>
 </html>

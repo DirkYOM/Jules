@@ -18,10 +18,16 @@ if (require('electron-squirrel-startup')) {
 }
 
 const createWindow = () => {
-  // Create the browser window.
+  // Create the browser window with YOM branding and modern styling
   const mainWindow = new BrowserWindow({
-    width: 800,
-    height: 600,
+    width: 1000, // Increased width for better content display
+    height: 700, // Increased height for better content display
+    minWidth: 800, // Set minimum dimensions
+    minHeight: 600,
+    titleBarStyle: 'hiddenInset', // Modern titlebar on macOS
+    backgroundColor: '#0a0a0a', // YOM dark background
+    icon: path.join(__dirname, 'assets', 'icon.png'), // App icon
+    show: false, // Don't show until ready
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true, // MODIFIED: Recommended for security
@@ -29,11 +35,22 @@ const createWindow = () => {
     },
   });
 
+  // Set window title to match YOM branding
+  mainWindow.setTitle('YOM Flash Tool');
+
   // and load the index.html of the app.
   mainWindow.loadFile(path.join(__dirname, 'index.html'));
 
-  // Open the DevTools.
-  mainWindow.webContents.openDevTools();
+  // Show window when ready to prevent visual flash
+  mainWindow.once('ready-to-show', () => {
+    mainWindow.show();
+  });
+
+  // Open the DevTools only in development
+  if (process.env.NODE_ENV === 'development') {
+    mainWindow.webContents.openDevTools();
+  }
+
   return mainWindow; // MODIFIED: Return mainWindow
 };
 
@@ -56,7 +73,7 @@ app.whenReady().then(async () => {
   const helperScriptPath = path.join(__dirname, 'root-helper.js');
   const command = `node "${helperScriptPath}"`;
   const options = { 
-    name: 'Yom Flasher Background Service',
+    name: 'YOM Flash Tool Background Service', // Updated service name
     env: {
       'DISPLAY': process.env.DISPLAY,
       ...(process.env.XAUTHORITY && {'XAUTHORITY': process.env.XAUTHORITY})
@@ -69,7 +86,7 @@ app.whenReady().then(async () => {
       console.error('Failed to start root helper:', error);
       console.error('sudo-prompt stdout:', stdout);
       console.error('sudo-prompt stderr:', stderr);
-      dialog.showErrorBox('Error', 'Failed to start background service with root privileges.');
+      dialog.showErrorBox('YOM Flash Tool - Error', 'Failed to start background service with root privileges.');
       return;
     }
     console.log('Root helper script launched by sudo-prompt.');
@@ -95,7 +112,7 @@ app.whenReady().then(async () => {
   const missingCommands = await checkAllRequiredCommands(requiredCommands);
   if (missingCommands.length > 0) {
       dialog.showErrorBox(
-          'Missing Required Commands',
+          'YOM Flash Tool - Missing Required Commands',
           `The following critical commands are missing or not found in PATH: \n\n${missingCommands.join(', ')}\n\nPlease install them and ensure they are in your system's PATH for the application to function correctly.`
       );
       // For a flasher utility, these commands are essential.
@@ -105,32 +122,124 @@ app.whenReady().then(async () => {
   // --- IPC Handlers ---
   // These handlers define how the main process responds to messages (invocations) from the renderer process.
 
-  // Handles the 'dialog:selectImage' event trigger from the renderer.
-  // Shows an open file dialog to select a raw image file.
-  // Persists the last opened directory for a better user experience.
-  ipcMain.handle('dialog:selectImage', async () => {
-    // Retrieve the last directory path used for opening files, to provide a consistent dialog starting point.
+  // Enhanced dialog handler that can accept filename hints for drag-and-drop
+  ipcMain.handle('dialog:selectImage', async (event, options = {}) => {
     const lastOpenedDirectory = store.get('lastOpenedDirectory');
+    const { suggestedFilename } = options;
 
-    // mainWindow must be in scope for dialog.showOpenDialog.
-    const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
-        title: 'Select RAW Image File',
+    let dialogOptions = {
+        title: 'YOM Flash Tool - Select RAW Image File',
         buttonLabel: 'Select Image',
         properties: ['openFile'],
-        defaultPath: lastOpenedDirectory, // Start dialog in the last used directory.
+        defaultPath: lastOpenedDirectory,
         filters: [
-            { name: 'RAW Disk Images', extensions: ['img', 'iso', 'bin', 'raw', 'dmg', '*'] },
+            { name: 'RAW Disk Images', extensions: ['img', 'iso', 'bin', 'raw', 'dmg'] },
             { name: 'All Files', extensions: ['*'] }
         ]
-    });
+    };
+
+    // If we have a suggested filename, try to set the default path to that file
+    if (suggestedFilename && lastOpenedDirectory) {
+        const suggestedPath = path.join(lastOpenedDirectory, suggestedFilename);
+        try {
+            // Check if the suggested file exists in the last directory
+            const fs = require('fs');
+            if (fs.existsSync(suggestedPath)) {
+                dialogOptions.defaultPath = suggestedPath;
+                console.log('Pre-selecting dragged file:', suggestedPath);
+            }
+        } catch (error) {
+            console.log('Could not pre-select suggested file:', error.message);
+        }
+    }
+
+    const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, dialogOptions);
+    
     if (canceled || filePaths.length === 0) {
-        return null; // User cancelled or closed the dialog.
+        return null;
     } else {
         const selectedFilePath = filePaths[0];
-        // Store the directory of the selected file for next time.
         store.set('lastOpenedDirectory', path.dirname(selectedFilePath));
-        return selectedFilePath; // Return the full path of the selected image.
+        return selectedFilePath;
     }
+  });
+
+  // New handler to get file info from a path (for drag-and-drop validation)
+  ipcMain.handle('file:getInfo', async (event, filePath) => {
+      try {
+          const fs = require('fs');
+          const stats = fs.statSync(filePath);
+          const fileName = path.basename(filePath);
+          
+          return {
+              success: true,
+              name: fileName,
+              size: stats.size,
+              path: filePath,
+              exists: true
+          };
+      } catch (error) {
+          console.error('Error getting file info:', error);
+          return {
+              success: false,
+              error: error.message,
+              exists: false
+          };
+      }
+  });
+
+  // Enhanced drag-and-drop handler - searches for dragged files in common locations
+  ipcMain.handle('file:validateDraggedFile', async (event, fileName, possiblePaths = []) => {
+      const fs = require('fs');
+      
+      // Common locations where files might be
+      const searchPaths = [
+          ...possiblePaths,
+          process.cwd(), // Current working directory
+          require('os').homedir(), // Home directory
+          path.join(require('os').homedir(), 'Downloads'), // Downloads folder
+          path.join(require('os').homedir(), 'Desktop'), // Desktop
+          path.join(require('os').homedir(), 'Documents'), // Documents
+      ];
+      
+      // Add last opened directory if available
+      const lastDir = store.get('lastOpenedDirectory');
+      if (lastDir) {
+          searchPaths.unshift(lastDir); // Add to beginning for priority
+      }
+      
+      // Search for the file in common locations
+      for (const searchPath of searchPaths) {
+          try {
+              const fullPath = path.join(searchPath, fileName);
+              if (fs.existsSync(fullPath)) {
+                  const stats = fs.statSync(fullPath);
+                  console.log('Found dragged file at:', fullPath);
+                  
+                  // Store this directory for future use
+                  store.set('lastOpenedDirectory', searchPath);
+                  
+                  return {
+                      success: true,
+                      path: fullPath,
+                      name: fileName,
+                      size: stats.size,
+                      found: true
+                  };
+              }
+          } catch (error) {
+              // Continue searching
+              continue;
+          }
+      }
+      
+      // File not found in common locations
+      return {
+          success: false,
+          found: false,
+          searched: searchPaths,
+          message: `Could not locate "${fileName}" in common directories`
+      };
   });
 
   // Handles request from renderer to list available block/storage devices.
@@ -164,14 +273,30 @@ app.whenReady().then(async () => {
           }
 
           console.log(`Starting flash: Image=${imagePath}, Device=${devicePath}, Size=${totalSize}`);
+          
+          // Update window title to show flashing status
+          mainWindow.setTitle('YOM Flash Tool - Flashing...');
+          
           // Using destructured flashImage directly
           await flashImage(imagePath, devicePath, totalSize, (progressData) => {
               // console.log('Main process flash progress:', progressData); // Optional: can be very noisy
               webContents.send('flash:progress', progressData); // Send progress data to renderer.
+              
+              // Update window title with progress
+              if (progressData.progress !== undefined) {
+                  const percent = Math.round(progressData.progress);
+                  mainWindow.setTitle(`YOM Flash Tool - Flashing ${percent}%`);
+              }
           });
+          
+          // Reset window title after completion
+          mainWindow.setTitle('YOM Flash Tool');
+          
           return { success: true, message: 'Flashing completed successfully.' };
       } catch (error) {
           console.error('Error during flashing in main process:', error);
+          // Reset window title on error
+          mainWindow.setTitle('YOM Flash Tool');
           return { success: false, message: error.message || 'Failed to flash image.' };
       }
   });
@@ -186,11 +311,21 @@ app.whenReady().then(async () => {
 
       try {
           console.log(`Starting partition extend: Device=${devicePath}, Partition=${partNum}`);
+          
+          // Update window title to show partition extension status
+          mainWindow.setTitle('YOM Flash Tool - Extending Partition...');
+          
           // Using destructured extendPartition directly
           await extendPartition(devicePath, partNum);
+          
+          // Reset window title
+          mainWindow.setTitle('YOM Flash Tool');
+          
           return { success: true, message: `Partition ${partNum} on ${devicePath} extended successfully.` };
       } catch (error) {
           console.error(`Error during partition extension in main process for ${devicePath}:`, error);
+          // Reset window title on error
+          mainWindow.setTitle('YOM Flash Tool');
           return { success: false, message: error.message || `Failed to extend partition ${partNum} on ${devicePath}.` };
       }
   });
@@ -204,18 +339,31 @@ app.whenReady().then(async () => {
 
       try {
           console.log(`Starting safe eject for: Device=${devicePath}`);
+          
+          // Update window title to show ejection status
+          mainWindow.setTitle('YOM Flash Tool - Ejecting Device...');
+          
           // Using destructured safeEject directly
           await safeEject(devicePath);
+          
+          // Reset window title
+          mainWindow.setTitle('YOM Flash Tool');
+          
           return { success: true, message: `Device ${devicePath} ejected successfully.` };
       } catch (error) {
           console.error(`Error during safe eject in main process for ${devicePath}:`, error);
+          // Reset window title on error
+          mainWindow.setTitle('YOM Flash Tool');
           return { success: false, message: error.message || `Failed to eject device ${devicePath}.` };
       }
   });
 
   // Handles request from renderer to show a native error dialog.
   ipcMain.on('dialog:showError', (event, title, content) => {
-      dialog.showErrorBox(title || 'Error', content || 'An unexpected error occurred.');
+      dialog.showErrorBox(
+          title ? `YOM Flash Tool - ${title}` : 'YOM Flash Tool - Error', 
+          content || 'An unexpected error occurred.'
+      );
   });
 
   // Handles request from renderer to show a native success/info message dialog.
@@ -223,7 +371,7 @@ app.whenReady().then(async () => {
       const window = BrowserWindow.fromWebContents(event.sender); // Get the window that sent the message
       dialog.showMessageBox(window || mainWindow, { // Fallback to mainWindow if sender window not found
           type: 'info',
-          title: title || 'Success',
+          title: title ? `YOM Flash Tool - ${title}` : 'YOM Flash Tool - Success',
           message: content || 'Operation completed successfully.',
           buttons: ['OK']
       });
@@ -245,6 +393,26 @@ app.on('window-all-closed', () => {
     app.quit();
   }
 });
+
+// Handle protocol for deep linking (future feature)
+app.setAsDefaultProtocolClient('yom-flash');
+
+// Prevent multiple instances
+const gotTheLock = app.requestSingleInstanceLock();
+
+if (!gotTheLock) {
+  app.quit();
+} else {
+  app.on('second-instance', (event, commandLine, workingDirectory) => {
+    // Someone tried to run a second instance, focus our window instead
+    const windows = BrowserWindow.getAllWindows();
+    if (windows.length > 0) {
+      const mainWindow = windows[0];
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.focus();
+    }
+  });
+}
 
 // In this file you can include the rest of your app's specific main process
 // code. You can also put them in separate files and import them here.
