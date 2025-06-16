@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YOM Flash Tool</title>
+    <link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="./styles/main.css">
+</head>
+<body>
+    <header id="app-header">
+        <div id="logo-container">
+            <div id="logo-symbol">
+                <svg viewBox="0 0 32 32" fill="currentColor">
+                    <path d="M16 2L8 14h6v16l8-12h-6V2z"/>
+                </svg>
+            </div>
+            <span id="logo-text">YOM</span>
+        </div>
+    </header>
+
+    <main id="app-content">
+        <div id="global-message-container" class="message-container" style="display: none;"></div>
+        
+        <section id="image-selection-view">
+            <h1>flash tool</h1>
+            <p class="subtitle">devs, operators, and community — start here.</p>
+            
+            <div class="card">
+                <h2>Select Image File</h2>
+                <p>Please select the RAW image file you want to flash to the SSD.</p>
+                
+                <div class="upload-area" id="upload-area">
+                    <div class="upload-icon">
+                        <svg viewBox="0 0 48 48" fill="currentColor">
+                            <path d="M14 2H6a2 2 0 0 0-2 2v8M2 30v8a2 2 0 0 0 2 2h8M30 2h8a2 2 0 0 1 2 2v8M42 30v8a2 2 0 0 1-2 2h-8M24 12v12M18 18l6-6 6 6"/>
+                        </svg>
+                    </div>
+                    <div class="upload-text">Choose Image File</div>
+                    <div class="upload-subtext">Click to select RAW image file</div>
+                    <input type="file" id="file-input" accept=".img,.raw,.iso,.bin" style="display: none;">
+                </div>
+                
+                <div id="selected-file" class="selected-file" style="display: none;">
+                    <div class="file-name" id="file-name"></div>
+                    <div class="file-size" id="file-size"></div>
+                </div>
+                
+                <button id="select-image-button" style="display: none;">Choose Image File...</button>
+                <div id="selected-image-path-container" style="margin-top: 15px; min-height: 20px; display: none;">
+                    <p><strong>Selected file:</strong> <span id="selected-image-path-text">None</span></p>
+                </div>
+            </div>
+        </section>
+
+        <section id="device-selection-view" style="display: none;">
+            <div class="card">
+                <h2>Select Target Device</h2>
+                <p><strong style="color: #00FF44;">WARNING:</strong> ALL DATA ON THE SELECTED DEVICE WILL BE ERASED.</p>
+                
+                <button id="refresh-devices-button">refresh device list</button>
+                
+                <div id="device-list-container" class="device-list">
+                    <p>Click "refresh device list" to load devices.</p>
+                </div>
+                
+                <div id="selected-device-info-container" class="selected-info">
+                    <p><strong>Selected target:</strong> <span id="selected-device-info-text">None</span></p>
+                </div>
+            </div>
+        </section>
+
+        <section id="flashing-controls-view" style="display: none;">
+            <div class="card text-center">
+                <button id="start-flashing-button" class="flash-button">start flash</button>
+            </div>
+        </section>
+
+        <section id="flashing-progress-view" style="display: none;">
+            <div class="card">
+                <h2>Flashing in Progress</h2>
+                <p>Please do not close the application or remove the target device.</p>
+                
+                <div class="progress-container">
+                    <div class="progress-bar">
+                        <div id="progress-bar" class="progress-fill">0%</div>
+                    </div>
+                    <div id="progress-speed-text" class="progress-text">Speed: -</div>
+                </div>
+                
+                <div id="progress-raw-output" class="raw-output"></div>
+                
+                <button id="cancel-flashing-button" class="cancel-button" disabled 
+                        title="Cancel functionality is not yet implemented.">
+                    cancel flash
+                </button>
+            </div>
+        </section>
+    </main>
+
+    <footer id="app-footer">
+        <p>&copy; 2024 YOM. App Version 1.0.0</p>
+    </footer>
+
+    <script src="./renderer.js"></script>
+</body>
+</html>
