@@ -1,211 +1,391 @@
-Flashing App Update Management Epic
-Epic Overview
-Implement an intelligent update management system for the flashing application that allows manufacturers to easily access and download the latest firmware images while maintaining operational efficiency and providing basic tracking capabilities.
+# YOM Flash Tool - Automated Update Management Plan
 
-Components Required
-1. Backend API Services
+## Epic Overview
+Implement a fully automated update management system that eliminates manual firmware selection by automatically downloading and selecting the latest firmware version, providing a streamlined and error-free flashing experience.
 
-Version Check Endpoint: Returns latest available version metadata
-Download URL Provider: Generates secure, time-limited download URLs
-File Storage: AWS S3 or similar for hosting large firmware images
+## New Flow Architecture
 
-2. Frontend Application Updates
+```
+App Start → Password → Auto Check Updates → Show Download Button (if available) → 
+Manual Download → Auto Select Latest → Confirm Screen → Device Selection → Flash → 
+Log with Serial → Safe Eject → "Flash Another?" Option
+```
 
-Update Checker Service: Handles version comparison and notifications
-Download Manager: Manages large file downloads with progress tracking
-File Manager: Handles local storage, cleanup, and organization
-Logging System: Tracks flash operations with serial numbers
-UI Components: Notification banners, progress indicators, export functionality
+## Components Required
 
-3. System Integration
+### 1. Backend API Services
+- **Version Check Endpoint**: Returns latest available version metadata
+- **Download URL Provider**: Generates secure, time-limited download URLs  
+- **File Storage**: AWS S3 or similar for hosting large firmware images
 
-smartctl Integration: For retrieving PSSD serial numbers
-File System Management: For organizing downloaded images
-Error Handling: Comprehensive error management and recovery
+### 2. Frontend Application Updates
+- **Automated Update Checker**: Handles version comparison silently on startup with polling
+- **Manual Download Manager**: Downloads latest version when user clicks download button
+- **Version Control System**: Prevents flashing older versions than currently installed
+- **File Manager**: Handles local storage, cleanup, and organization automatically
+- **Enhanced Logging System**: Tracks flash operations with device serial numbers and firmware versions
+- **Streamlined UI**: Confirmation screen with auto-selected firmware display
+- **Continuous Operation**: "Flash Another" workflow for batch operations
 
+### 3. System Integration
+- **smartctl Integration**: For retrieving device serial numbers
+- **File System Management**: For organizing downloaded images automatically
+- **Error Handling**: Comprehensive error management and recovery
 
-Implementation Plan
-Phase 1: Backend API Development
-Step 1.1: Create Version Management API
+---
 
+## Implementation Plan
+
+### Phase 1: Backend API Development
+
+#### Step 1.1: Create Version Management API
+```
 Endpoint: GET /api/flash-images/latest
 Response: {
   "version": "v1.2.3",
   "release_date": "2024-06-15",
   "file_size": 25769803776,
   "checksum": "sha256:abc123...",
-  "description": "Latest firmware with security updates"
+  "description": "Latest firmware with security updates",
+  "mandatory": true
 }
+```
 
-Step 1.2: Create Download URL Generator
-
-Endpoint: POST /api/flash-images/download
+#### Step 1.2: Create Download URL Generator
+```
+Endpoint: POST /api/flash-images/download  
 Request: { "version": "v1.2.3" }
 Response: {
   "download_url": "https://signed-url-with-expiry",
-  "expires_at": "2024-06-16T18:00:00Z"
+  "expires_at": "2024-06-16T18:00:00Z",
+  "file_size": 25769803776,
+  "checksum": "sha256:abc123..."
 }
+```
 
-Step 1.3: Configure File Storage
+#### Step 1.3: Configure File Storage
+- Set up AWS S3 bucket with versioned firmware images
+- Configure signed URL generation with 2-hour expiry
+- Implement file integrity verification
 
-Set up AWS S3 bucket with versioned firmware images
-Configure signed URL generation with 2-hour expiry
-Implement file integrity verification
+---
 
-Phase 2: Frontend Core Services
-Step 2.1: Update Checker Service
-class UpdateChecker {
+### Phase 2: Automated Frontend Services
+
+#### Step 2.1: Automated Update Checker with Polling
+```javascript
+class AutoUpdateChecker {
+  constructor() {
+    this.pollingInterval = 5 * 60 * 1000; // 5 minutes
+    this.currentVersion = null;
+  }
+
   async checkForUpdates() {
     // Compare local versions with API response
     // Return update availability status
+    // Prevent downgrade to older versions
   }
   
-  async getLocalVersions() {
+  startPolling() {
+    // Continuously check for updates every 5 minutes
+    // Update UI if new version becomes available
+  }
+  
+  async getLatestLocalVersion() {
     // Scan recommended/ directory
-    // Parse version information
-  }
-}
-
-Step 2.2: Download Manager Service
-class DownloadManager {
-  async downloadImage(version) {
-    // Request download URL from API
-    // Handle chunked download with progress
-    // Verify file integrity
-    // Manage temp file location
+    // Return newest version info
   }
   
-  async cancelDownload() {
-    // Clean up partial downloads
+  async preventDowngrade(selectedVersion) {
+    // Check if selected version is newer than last flashed
+    // Return true/false for version compatibility
   }
 }
+```
 
-Step 2.3: File Manager Service
+#### Step 2.2: Manual Download Manager Service
+```javascript
+class ManualDownloadManager {
+  async downloadLatestImage(onProgress) {
+    // Request download URL from API
+    // Handle chunked download with progress callback
+    // Verify file integrity automatically
+    // Clean up old versions (keep max 3)
+    // Return download success/failure
+  }
+  
+  async validateDownload(filePath, checksum) {
+    // Verify file integrity
+    // Handle corrupted downloads
+  }
+  
+  isDownloadInProgress() {
+    // Return current download status
+  }
+}
+```
 
-class FileManager {
+#### Step 2.3: Automated File Manager Service
+```javascript
+class AutoFileManager {
   async organizeFiles() {
-    // Maintain 3-file limit
+    // Maintain 3-file limit automatically
     // Delete oldest when adding new
     // Handle file movements safely
   }
   
-  async validateStorage() {
-    // Check available disk space
-    // Verify file integrity
+  async getSelectedFirmware() {
+    // Return path and info of auto-selected firmware
   }
 }
+```
 
-Phase 3: User Interface Components
-Step 3.1: Update Notification System
+---
 
-Create dismissible notification banner
-"New version [version] available [Get Latest]" button
-Show/hide based on update availability
-Integration with app header/navigation
+### Phase 3: Streamlined User Interface
 
-Step 3.2: Download Progress Interface
+#### Step 3.1: Startup Confirmation Screen
+- **Auto Update Status**: Show update check/download progress
+- **Selected Firmware Display**: Show name and version of auto-selected firmware
+- **Confirmation Button**: "Continue with [version]" to proceed to device selection
+- **Background Processing**: All update logic happens automatically
 
-Progress bar with percentage and speed
-Cancel download button
-Error state handling
-Success confirmation
+#### Step 3.2: Updated Main Screen Structure
+```
+┌─────────────────────────────────────┐
+│ YOM Flash Tool                      │
+├─────────────────────────────────────┤
+│ 🔄 Checking for updates...          │
+│                                     │
+│ Current: FlashingApp_v1.2.2.img     │
+│ Available: FlashingApp_v1.2.3.img   │
+│                                     │
+│ [⬇️ Download v1.2.3] [Status: Ready]│
+│                                     │
+│ Selected: FlashingApp_v1.2.3.img    │
+│ Size: 24.0 GB                       │
+│ Released: June 15, 2024             │
+│                                     │
+│ [Continue to Device Selection]      │
+│                                     │
+│ [Export Log] [Settings]             │
+└─────────────────────────────────────┘
+```
 
-Step 3.3: Settings and Management
+#### Step 3.3: Enhanced Flash Completion Flow
+```
+┌─────────────────────────────────────┐
+│ ✅ Flash Completed Successfully     │
+├─────────────────────────────────────┤
+│ Device: /dev/sdb                    │
+│ Serial: ABC123XYZ789                │
+│ Firmware: FlashingApp_v1.2.3        │
+│ Duration: 00:05:23                  │
+│                                     │
+│ [✅ Logged] [💾 Safe Eject]         │
+│                                     │
+│ [🔄 Flash Another Device]           │
+│ [🏠 Return to Main Menu]            │
+└─────────────────────────────────────┘
+```
 
-Manual "Check for Updates" button
-Download location configuration
-Export flash log functionality
-Version history display
+#### Step 3.3: Legacy Manual Selection (Commented Out)
+- Keep existing drag-and-drop functionality commented in code
+- Keep file selection dialog commented in code  
+- Maintain for potential future manual override feature
 
-Phase 4: Serial Number Integration
-Step 4.1: smartctl Integration
+---
+
+### Phase 4: Enhanced Logging System
+
+#### Step 4.1: smartctl Integration
+```javascript
 class SerialNumberService {
-  async getSerialNumber(devicePath) {
+  async getDeviceSerial(devicePath) {
     // Execute smartctl command
     // Parse serial number from output
     // Handle errors gracefully
+    // Return device serial or null
   }
 }
+```
 
-Step 4.2: Flash Logging System
-
-class FlashLogger {
-  async logFlashOperation(serialNumber, version, status) {
-    // Create log entry with timestamp
-    // Append to local log file
+#### Step 4.2: Enhanced Flash Logging with Serial Numbers
+```javascript
+class EnhancedFlashLogger {
+  async logFlashOperation(devicePath, firmwareVersion, status, startTime, endTime) {
+    // Get device serial number using smartctl
+    const deviceSerial = await this.getDeviceSerial(devicePath);
+    
+    // Calculate duration
+    const duration = endTime - startTime;
+    
+    // Create log entry: {TimeStamp} {Name_version} {serial number}
+    const logEntry = {
+      timestamp: new Date().toISOString(),
+      firmware: firmwareVersion, // e.g., "FlashingApp_v1.2.3"
+      serialNumber: deviceSerial || 'UNKNOWN',
+      status: status,
+      duration: Math.round(duration / 1000) // seconds
+    };
+    
+    // Append to CSV: timestamp,firmware,serial,status,duration
+    await this.appendToLog(logEntry);
+    return logEntry;
+  }
+  
+  async getDeviceSerial(devicePath) {
+    // Execute smartctl to get device serial
+    // Return serial number or null if failed
   }
   
   async exportLog(format = 'csv') {
     // Generate exportable log file
-    // Support CSV and JSON formats
+    // Format: timestamp,firmware,serial,status,duration
   }
 }
+```
 
-Phase 5: Error Handling and Recovery
-Step 5.1: Network Error Handling
+---
 
-Retry mechanisms for API calls
-Graceful degradation when offline
-User-friendly error messages
+### Phase 5: Error Handling and Recovery
 
-Step 5.2: File System Error Handling
+#### Step 5.1: Network Error Handling
+- **Retry Mechanisms**: Automatic retry for failed API calls
+- **Offline Graceful Degradation**: Use last downloaded version if offline
+- **User-Friendly Messages**: Clear status updates during process
 
-Disk space validation
-Permission error handling
-Corrupted file recovery
+#### Step 5.2: Download Error Handling
+- **Resume Interrupted Downloads**: Continue partial downloads
+- **Corruption Recovery**: Re-download corrupted files automatically
+- **Disk Space Validation**: Check available space before download
 
-Step 5.3: Download Recovery
+#### Step 5.3: Fallback Mechanisms
+- **Previous Version Fallback**: Use previous working version if latest fails
+- **Manual Override**: Hidden developer mode for manual file selection
+- **Emergency Recovery**: Reset to factory firmware selection
 
-Resume interrupted downloads
-Cleanup failed downloads
-Verification failure handling
+---
 
-Phase 6: Integration and Testing
-Step 6.1: Integration Testing
+### Phase 6: Integration and Testing
 
-End-to-end update workflow
-Multiple concurrent operations
-Error scenario testing
+#### Step 6.1: Automated Flow Testing
+- End-to-end automated update workflow
+- Network failure recovery testing
+- Disk space limitation testing
+- Firmware corruption handling
 
-Step 6.2: Performance Testing
+#### Step 6.2: Performance Optimization
+- Background download performance
+- Startup time optimization
+- Memory usage during large downloads
+- Storage cleanup efficiency
 
-Large file download performance
-Multiple file management
-Resource usage optimization
+#### Step 6.3: User Experience Testing
+- Manufacturer workflow validation
+- Error message clarity
+- Recovery process effectiveness
+- Documentation and training materials
 
-Step 6.3: User Acceptance Testing
+---
 
-Manufacturer workflow validation
-UI/UX feedback incorporation
-Documentation creation
+## Technical Specifications
 
+### File Structure
+```
+[userData]/
+├── recommended/
+│   ├── FlashingApp_v1.2.1.img
+│   ├── FlashingApp_v1.2.2.img
+│   └── FlashingApp_v1.2.3.img        # Auto-selected latest
+├── temp/
+│   └── download_staging/
+│       └── partial_downloads/
+└── logs/
+    ├── flash_operations.csv
+    ├── download_history.csv
+    └── app_errors.log
+```
 
-Technical Specifications
-File Structure
-
-/recommended/
-  - FlashingApp_v1.2.1.img
-  - FlashingApp_v1.2.2.img  
-  - FlashingApp_v1.2.3.img
-/temp/
-  - download_staging/
-/logs/
-  - flash_operations.csv
-  - app_errors.log
-
-Configuration
+### Configuration
+```json
 {
   "api_base_url": "https://api.yourcompany.com",
-  "check_interval": "startup_only",
+  "auto_update_check": true,
+  "manual_download": true,
+  "polling_interval": 300000,
+  "prevent_downgrade": true,
   "max_stored_versions": 3,
   "download_timeout": 3600,
-  "recommended_path": "./recommended/"
+  "startup_check_timeout": 30,
+  "recommended_path": "[userData]/recommended/",
+  "batch_mode": true
 }
+```
 
-Dependencies
+### Updated Application Flow
+```
+1. App Launch
+2. Password Authentication
+3. Auto Update Check (with polling every 5 minutes)
+   ├── If newer version available
+   │   ├── Show "Download v1.2.3" button
+   │   ├── User clicks download
+   │   ├── Download with progress
+   │   ├── Verify integrity
+   │   └── Clean old versions
+   └── If no update needed
+       └── Use existing latest
+4. Display Confirmation Screen
+   ├── Show selected firmware info
+   ├── Version downgrade prevention
+   ├── "Continue" button
+   └── Secondary actions (Export Log, Settings)
+5. Device Selection (existing flow)
+6. Flash Process (existing flow)
+7. Enhanced Completion Flow
+   ├── Get device serial with smartctl
+   ├── Log: {timestamp} {firmware_version} {serial}
+   ├── Safe eject device
+   └── Show options:
+       ├── "Flash Another Device" (quick restart)
+       └── "Return to Main Menu"
+```
 
-HTTP client for API calls
-File system utilities
-Progress tracking libraries
-CSV export functionality
-System command execution (smartctl)
+### Key Dependencies
+- **HTTP Client**: For API calls (built-in fetch)
+- **File System Utilities**: Node.js fs/promises
+- **Crypto**: For checksum verification  
+- **CSV Export**: Built-in functionality
+- **System Commands**: smartctl via child_process
+- **Progress Tracking**: Custom implementation
+
+### Security Considerations
+- **Signed URLs**: Time-limited download URLs
+- **Checksum Verification**: SHA-256 integrity checks
+- **Secure Storage**: Local firmware stored in protected user directory
+- **Network Security**: HTTPS-only API communication
+
+---
+
+## Benefits of New Automated Approach
+
+### For Users
+- ✅ **Controlled Downloads**: User decides when to download updates  
+- ✅ **Version Safety**: Cannot accidentally flash older firmware
+- ✅ **Always Latest**: Continuous polling ensures latest version awareness
+- ✅ **Batch Efficiency**: "Flash Another" option for multiple devices
+- ✅ **Complete Logging**: Full tracking with device serials and firmware versions
+
+### For YOM  
+- ✅ **Controlled Distribution**: Users get latest but choose when to download
+- ✅ **Better Analytics**: Track firmware usage with device serials automatically
+- ✅ **Version Control**: Prevent support issues from firmware downgrades  
+- ✅ **Operational Efficiency**: Batch flashing capabilities for manufacturing
+- ✅ **Comprehensive Logging**: Complete audit trail of all flash operations
+
+### Technical Advantages
+- ✅ **Simplified UI**: Less complex interface
+- ✅ **Better Testing**: Predictable firmware versions
+- ✅ **Enhanced Logging**: Comprehensive operation tracking
+- ✅ **Reliable Process**: Automated verification and fallback

@@ -59,7 +59,8 @@ document.addEventListener('DOMContentLoaded', () => {
             'image-selection-view',
             'device-selection-view', 
             'flashing-controls-view',
-            'flashing-progress-view'
+            'flashing-progress-view',
+            'flash-completion-view'
         ];
         
         views.forEach(view => {
@@ -73,8 +74,10 @@ document.addEventListener('DOMContentLoaded', () => {
     function checkShowFlashingButton() {
         if (currentSelectedImagePath && currentSelectedDevicePath) {
             if (flashingControlsView) flashingControlsView.style.display = 'block';
+            console.log('✅ Ready to flash - showing flash button');
         } else {
             if (flashingControlsView) flashingControlsView.style.display = 'none';
+            console.log('⏳ Waiting for image and device selection');
         }
     }
 
@@ -127,170 +130,6 @@ document.addEventListener('DOMContentLoaded', () => {
         switchToDeviceSelectionView();
     }
 
-    // Upload area handlers - Use Electron dialog instead of file input
-    if (uploadArea) {
-        uploadArea.addEventListener('click', async () => {
-            try {
-                const filePath = await window.electronAPI.selectImage();
-                if (filePath) {
-                    currentSelectedImagePath = filePath;
-                    
-                    // Extract filename and update UI
-                    const selectedFileName = filePath.split('/').pop() || filePath.split('\\').pop();
-                    
-                    // Update UI elements using getElementById to avoid conflicts
-                    if (fileName) fileName.textContent = selectedFileName;
-                    if (fileSize) fileSize.textContent = 'Getting file size...';
-                    if (selectedFile) selectedFile.style.display = 'block';
-                    
-                    // Try to get file info for better display
-                    try {
-                        const fileInfo = await window.electronAPI.getFileInfo(filePath);
-                        if (fileInfo.success && fileSize) {
-                            fileSize.textContent = formatFileSize(fileInfo.size);
-                        }
-                    } catch (error) {
-                        console.warn('Could not get file info:', error);
-                        if (fileSize) fileSize.textContent = 'Unknown size';
-                    }
-                    
-                    console.log('Selected image via click:', currentSelectedImagePath);
-                    switchToDeviceSelectionView();
-                }
-            } catch (error) {
-                console.error('Error selecting image:', error);
-                showGlobalMessage('Error selecting file: ' + error.message, 'error');
-            }
-        });
-        
-        uploadArea.addEventListener('dragover', (e) => {
-            e.preventDefault();
-            uploadArea.style.borderColor = '#00FF44';
-            uploadArea.style.background = 'rgba(0, 255, 68, 0.1)';
-        });
-        
-        uploadArea.addEventListener('dragleave', (e) => {
-            e.preventDefault();
-            uploadArea.style.borderColor = 'rgba(0, 255, 68, 0.3)';
-            uploadArea.style.background = 'transparent';
-        });
-        
-        uploadArea.addEventListener('drop', async (e) => {
-            e.preventDefault();
-            uploadArea.style.borderColor = 'rgba(0, 255, 68, 0.3)';
-            uploadArea.style.background = 'transparent';
-            
-            const files = e.dataTransfer.files;
-            if (files.length > 0) {
-                const file = files[0];
-                console.log('Dropped file:', file.name);
-                
-                showGlobalMessage(`Locating "${file.name}"...`, 'info', 2000);
-                
-                try {
-                    // Try to find the dragged file in common locations
-                    const result = await window.electronAPI.validateDraggedFile(file.name);
-                    
-                    if (result.success && result.found) {
-                        // File found! Use it directly
-                        currentSelectedImagePath = result.path;
-                        
-                        // Update UI elements
-                        if (fileName) fileName.textContent = result.name;
-                        if (fileSize) fileSize.textContent = formatFileSize(result.size);
-                        if (selectedFile) selectedFile.style.display = 'block';
-                        
-                        showGlobalMessage(`Successfully located: ${result.name}`, 'success', 2000);
-                        console.log('Auto-selected dragged file:', currentSelectedImagePath);
-                        
-                        switchToDeviceSelectionView();
-                    } else {
-                        // File not found - fall back to dialog
-                        showGlobalMessage(`Could not locate "${file.name}". Please select it manually...`, 'info', 3000);
-                        
-                        setTimeout(async () => {
-                            try {
-                                const filePath = await window.electronAPI.selectImage({ 
-                                    suggestedFilename: file.name 
-                                });
-                                
-                                if (filePath) {
-                                    const selectedFileName = filePath.split('/').pop() || filePath.split('\\').pop();
-                                    
-                                    if (selectedFileName === file.name) {
-                                        showGlobalMessage(`Perfect! Selected the dragged file: ${file.name}`, 'success', 2000);
-                                    } else {
-                                        showGlobalMessage(`Selected: ${selectedFileName}`, 'info', 2000);
-                                    }
-                                    
-                                    currentSelectedImagePath = filePath;
-                                    
-                                    if (fileName) fileName.textContent = selectedFileName;
-                                    if (fileSize) fileSize.textContent = formatFileSize(file.size || 0);
-                                    if (selectedFile) selectedFile.style.display = 'block';
-                                    
-                                    console.log('Selected image after drag-drop dialog:', currentSelectedImagePath);
-                                    switchToDeviceSelectionView();
-                                } else {
-                                    showGlobalMessage('File selection cancelled', 'info', 2000);
-                                }
-                            } catch (error) {
-                                console.error('Error in drag-drop file selection:', error);
-                                showGlobalMessage('Error selecting file: ' + error.message, 'error');
-                            }
-                        }, 500);
-                    }
-                } catch (error) {
-                    console.error('Error validating dragged file:', error);
-                    showGlobalMessage('Error processing dragged file: ' + error.message, 'error');
-                }
-            }
-        });
-    }
-
-    // Legacy button support - Keep original working logic
-    if (selectImageButton) {
-        selectImageButton.addEventListener('click', async () => {
-            try {
-                const filePath = await window.electronAPI.selectImage();
-                if (filePath) {
-                    currentSelectedImagePath = filePath;
-                    if (selectedImagePathText) {
-                        selectedImagePathText.textContent = filePath;
-                    }
-                    
-                    // Extract filename and update UI
-                    const selectedFileName = filePath.split('/').pop() || filePath.split('\\').pop();
-                    
-                    // Update new UI elements
-                    if (fileName) fileName.textContent = selectedFileName;
-                    if (fileSize) fileSize.textContent = 'Getting file size...';
-                    if (selectedFile) selectedFile.style.display = 'block';
-                    
-                    // Try to get file info for better display
-                    try {
-                        const fileInfo = await window.electronAPI.getFileInfo(filePath);
-                        if (fileInfo.success && fileSize) {
-                            fileSize.textContent = formatFileSize(fileInfo.size);
-                        }
-                    } catch (error) {
-                        console.warn('Could not get file info:', error);
-                        if (fileSize) fileSize.textContent = 'Unknown size';
-                    }
-                    
-                    console.log('Selected image path:', filePath);
-                    switchToDeviceSelectionView();
-                }
-            } catch (error) {
-                console.error('Error selecting image:', error);
-                if (selectedImagePathText) {
-                    selectedImagePathText.textContent = 'Error selecting file.';
-                }
-                showGlobalMessage('Error selecting file: ' + error.message, 'error');
-            }
-        });
-    }
-
     // Device Selection
     function switchToDeviceSelectionView() {
         showView('device-selection-view');
@@ -340,7 +179,24 @@ document.addEventListener('DOMContentLoaded', () => {
                     li.classList.add('selected-item');
 
                     console.log('Selected device:', currentSelectedDevicePath);
+                    console.log('Image path available:', currentSelectedImagePath);
+                    
+                    // Show flash button after device selection
                     checkShowFlashingButton();
+                    
+                    // Auto-show flash controls if both image and device are selected
+                    if (currentSelectedImagePath && currentSelectedDevicePath) {
+                        console.log('✅ Both image and device selected - showing flash controls');
+                        showView('flashing-controls-view');
+                        if (window.showGlobalMessage) {
+                            window.showGlobalMessage('✅ Ready to flash! Click "start flash" when ready.', 'success');
+                        }
+                    } else {
+                        console.log('⏳ Still missing:', {
+                            image: !!currentSelectedImagePath,
+                            device: !!currentSelectedDevicePath
+                        });
+                    }
                 });
             }
             ul.appendChild(li);
@@ -410,6 +266,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
 
+            console.log('Starting flash operation:');
+            console.log('Image:', currentSelectedImagePath);
+            console.log('Device:', currentSelectedDevicePath);
+
             // Confirmation
             const confirmed = confirm(
                 `WARNING: You are about to flash:\n\n` +
@@ -476,10 +336,14 @@ document.addEventListener('DOMContentLoaded', () => {
                                 const ejectResult = await window.electronAPI.safeEject(currentSelectedDevicePath);
                                 if (ejectResult.success) {
                                     if (progressBar) progressBar.textContent = 'All Done!';
-                                    if (window.electronAPI && window.electronAPI.showSuccessDialog) {
+                                    
+                                    // Show completion screen if available, otherwise show success dialog
+                                    if (result.logEntry && window.updateManager && window.updateManager.showFlashCompletion) {
+                                        window.updateManager.showFlashCompletion(result.logEntry);
+                                    } else if (window.electronAPI && window.electronAPI.showSuccessDialog) {
                                         window.electronAPI.showSuccessDialog('Operation Successful', 'All operations completed successfully! The device can now be safely removed.');
+                                        resetToInitialState();
                                     }
-                                    resetToInitialState();
                                 } else {
                                     if (progressSpeedText) {
                                         progressSpeedText.textContent = `Eject Error: ${ejectResult.message}`;
@@ -563,8 +427,16 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // Make switchToDeviceSelectionView available globally for legacy support
+    // Make functions available globally for integration with updateManager
     window.switchToDeviceSelectionView = switchToDeviceSelectionView;
+    window.showGlobalMessage = showGlobalMessage; // Make available for update manager
+    window.setCurrentSelectedImagePath = (path) => {
+        currentSelectedImagePath = path;
+        console.log('Image path set from updateManager:', currentSelectedImagePath);
+        checkShowFlashingButton();
+    };
+    window.getCurrentSelectedImagePath = () => currentSelectedImagePath;
+    window.showGlobalMessage = showGlobalMessage; // Make available for update manager
 
     // Initialize
     checkShowFlashingButton();

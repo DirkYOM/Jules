@@ -22,15 +22,35 @@
     <main id="app-content">
         <div id="global-message-container" class="message-container" style="display: none;"></div>
         
+        <!-- NEW: Update banner (uses existing selected-file styling) -->
+        <div id="update-banner" class="selected-file" style="display: none;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div style="display: flex; align-items: center; gap: 12px;">
+                    <span>⚡</span>
+                    <span class="file-name">
+                        New version <span id="update-version"></span> available
+                    </span>
+                </div>
+                <button id="download-update-btn" style="padding: 8px 16px; font-size: 14px;">Download</button>
+            </div>
+        </div>
+        
         <section id="image-selection-view">
             <h1>flash tool</h1>
             <p class="subtitle">devs, operators, and community — start here.</p>
             
+            <!-- NEW: Auto-selected firmware display (uses existing selected-file styling) -->
+            <div id="firmware-selected" class="selected-file" style="display: none;">
+                <div class="file-name" id="auto-firmware-name">Loading firmware...</div>
+                <div class="file-size" id="auto-firmware-size">Checking for latest version...</div>
+            </div>
+            
             <div class="card">
-                <h2>Select Image File</h2>
-                <p>Please select the RAW image file you want to flash to the SSD.</p>
+                <h2 id="card-title">Select Image File</h2>
+                <p id="card-description">Please select the RAW image file you want to flash to the SSD.</p>
                 
-                <div class="upload-area" id="upload-area">
+                <!-- LEGACY: Upload area - hidden but kept for compatibility -->
+                <div class="upload-area" id="upload-area" style="display: none;">
                     <div class="upload-icon">
                         <svg viewBox="0 0 48 48" fill="currentColor">
                             <path d="M14 2H6a2 2 0 0 0-2 2v8M2 30v8a2 2 0 0 0 2 2h8M30 2h8a2 2 0 0 1 2 2v8M42 30v8a2 2 0 0 1-2 2h-8M24 12v12M18 18l6-6 6 6"/>
@@ -46,9 +66,23 @@
                     <div class="file-size" id="file-size"></div>
                 </div>
                 
+                <!-- LEGACY: Manual selection - hidden but kept -->
                 <button id="select-image-button" style="display: none;">Choose Image File...</button>
                 <div id="selected-image-path-container" style="margin-top: 15px; min-height: 20px; display: none;">
                     <p><strong>Selected file:</strong> <span id="selected-image-path-text">None</span></p>
+                </div>
+                
+                <!-- NEW: Action buttons using existing button styles -->
+                <div style="display: flex; gap: 12px; justify-content: center; margin-top: 20px;">
+                    <button id="export-log-btn" class="cancel-button" style="margin-top: 0; padding: 12px 20px; font-size: 14px;">
+                        📄 Export Log
+                    </button>
+                    <button id="check-updates-btn" class="cancel-button" style="margin-top: 0; padding: 12px 20px; font-size: 14px;">
+                        🔄 Check Updates
+                    </button>
+                    <button id="continue-to-devices-btn" class="flash-button" style="margin-top: 0; padding: 12px 24px; font-size: 16px; display: none;">
+                        ➡️ Select Target Device
+                    </button>
                 </div>
             </div>
         </section>
@@ -96,6 +130,25 @@
                 </button>
             </div>
         </section>
+
+        <!-- NEW: Flash completion section using existing card styling -->
+        <section id="flash-completion-view" style="display: none;">
+            <div class="card text-center">
+                <h2 style="color: #00FF44; margin-bottom: 24px;">✅ Flash Completed Successfully!</h2>
+                
+                <div class="selected-info" style="text-align: left; margin-bottom: 24px;">
+                    <p><strong>Device:</strong> <span id="completion-device">-</span></p>
+                    <p><strong>Serial Number:</strong> <span id="completion-serial">-</span></p>
+                    <p><strong>Firmware:</strong> <span id="completion-firmware">-</span></p>
+                    <p><strong>Duration:</strong> <span id="completion-duration">-</span></p>
+                </div>
+                
+                <div style="display: flex; gap: 16px; justify-content: center; flex-wrap: wrap;">
+                    <button id="flash-another-btn" class="flash-button">🔄 Flash Another Device</button>
+                    <button id="return-home-btn" class="cancel-button" style="margin-top: 0;">🏠 Return to Main Menu</button>
+                </div>
+            </div>
+        </section>
     </main>
 
     <footer id="app-footer">
@@ -103,5 +156,278 @@
     </footer>
 
     <script src="./renderer.js"></script>
+    <script>
+        // Simple automated update manager with firmware refresh support
+        let currentSelectedImagePath = null; // Keep compatibility with existing renderer.js
+        
+        class SimpleUpdateManager {
+            constructor() {
+                this.init();
+            }
+            
+            async init() {
+                // Check for updates and load firmware on startup
+                setTimeout(() => this.checkForUpdates(), 2000);
+                setTimeout(() => this.loadAutoSelectedFirmware(), 3000);
+                
+                // Register event listeners
+                document.getElementById('download-update-btn')?.addEventListener('click', () => this.downloadUpdate());
+                document.getElementById('check-updates-btn')?.addEventListener('click', () => this.checkForUpdates());
+                document.getElementById('export-log-btn')?.addEventListener('click', () => this.exportLog());
+                document.getElementById('flash-another-btn')?.addEventListener('click', () => this.flashAnother());
+                document.getElementById('return-home-btn')?.addEventListener('click', () => this.returnHome());
+                document.getElementById('continue-to-devices-btn')?.addEventListener('click', () => this.continueToDevices());
+                
+                // Listen for polling updates from main process
+                if (window.electronAPI?.onNewVersionAvailable) {
+                    window.electronAPI.onNewVersionAvailable((version) => this.showUpdateBanner(version));
+                }
+                
+                // Listen for download progress
+                if (window.electronAPI?.onDownloadProgress) {
+                    window.electronAPI.onDownloadProgress((progress) => this.updateDownloadProgress(progress));
+                }
+                
+                // NEW: Listen for firmware refresh after download
+                if (window.electronAPI?.onFirmwareRefreshed) {
+                    window.electronAPI.onFirmwareRefreshed((data) => this.handleFirmwareRefresh(data));
+                }
+            }
+            
+            async checkForUpdates() {
+                try {
+                    const result = await window.electronAPI.checkForUpdates();
+                    if (result.hasUpdate) {
+                        this.showUpdateBanner(result.latest);
+                    } else if (!result.error) {
+                        this.showMessage('You have the latest version', 'success');
+                    }
+                } catch (error) {
+                    console.error('Update check failed:', error);
+                }
+            }
+            
+            async loadAutoSelectedFirmware() {
+                try {
+                    const firmware = await window.electronAPI.getAutoSelectedFirmware();
+                    if (firmware && firmware.path) {
+                        currentSelectedImagePath = firmware.path; // Set for compatibility with existing renderer.js
+                        this.showFirmwareSelected(firmware);
+                    } else {
+                        this.showNoFirmware();
+                    }
+                } catch (error) {
+                    console.error('Failed to load firmware:', error);
+                    this.showNoFirmware();
+                }
+            }
+            
+            showUpdateBanner(version) {
+                const banner = document.getElementById('update-banner');
+                const versionSpan = document.getElementById('update-version');
+                if (banner && versionSpan) {
+                    versionSpan.textContent = version.version;
+                    banner.style.display = 'block';
+                    this.pendingUpdate = version;
+                }
+            }
+            
+            async downloadUpdate() {
+                if (!this.pendingUpdate) return;
+                
+                const btn = document.getElementById('download-update-btn');
+                const originalText = btn.textContent;
+                btn.disabled = true;
+                btn.textContent = 'Downloading...';
+                
+                try {
+                    const result = await window.electronAPI.downloadFirmware(this.pendingUpdate.version);
+                    if (result.success) {
+                        document.getElementById('update-banner').style.display = 'none';
+                        this.showMessage('Download completed successfully!', 'success');
+                        // Firmware refresh will be handled automatically by the firmware refresh event
+                    } else {
+                        this.showMessage('Download failed: ' + result.error, 'error');
+                    }
+                } catch (error) {
+                    this.showMessage('Download failed: ' + error.message, 'error');
+                } finally {
+                    btn.disabled = false;
+                    btn.textContent = originalText;
+                }
+            }
+            
+            // NEW: Handle automatic firmware refresh after download
+            handleFirmwareRefresh(data) {
+                console.log('🔄 Firmware refreshed after download:', data);
+                
+                if (data.firmware && data.firmware.path) {
+                    // Update global selected path for compatibility
+                    currentSelectedImagePath = data.firmware.path;
+                    
+                    // CRITICAL: Also update renderer.js
+                    if (window.setCurrentSelectedImagePath) {
+                        window.setCurrentSelectedImagePath(data.firmware.path);
+                    }
+                    
+                    // Update UI to show new firmware
+                    this.showFirmwareSelected(data.firmware);
+                    
+                    // Show success message with version info
+                    this.showMessage(`✅ Downloaded and selected ${data.version} for flashing`, 'success');
+                    
+                    // Auto-advance to device selection if desired
+                    // Uncomment the next line to auto-advance:
+                    // setTimeout(() => window.switchToDeviceSelectionView?.(), 2000);
+                } else {
+                    console.warn('Firmware refresh data missing firmware info');
+                }
+            }
+            
+            updateDownloadProgress(progress) {
+                const btn = document.getElementById('download-update-btn');
+                if (btn && progress.progress !== undefined) {
+                    btn.textContent = `${progress.progress}%`;
+                }
+            }
+            
+            showFirmwareSelected(firmware) {
+                const container = document.getElementById('firmware-selected');
+                const nameEl = document.getElementById('auto-firmware-name');
+                const sizeEl = document.getElementById('auto-firmware-size');
+                const cardTitle = document.getElementById('card-title');
+                const cardDesc = document.getElementById('card-description');
+                const continueBtn = document.getElementById('continue-to-devices-btn');
+                
+                if (container) {
+                    container.style.display = 'block';
+                    // Add visual indicator that firmware is selected and ready
+                    container.style.borderColor = 'rgba(0, 255, 68, 0.6)';
+                    container.style.backgroundColor = 'rgba(0, 255, 68, 0.15)';
+                }
+                
+                if (nameEl) nameEl.textContent = `✅ ${firmware.filename || 'Unknown firmware'}`;
+                if (sizeEl) sizeEl.textContent = `${window.electronAPI.formatFileSize(firmware.size || 0)} • ${firmware.version || 'Unknown version'} • Ready for flashing`;
+                if (cardTitle) cardTitle.textContent = '✅ Firmware Ready';
+                if (cardDesc) cardDesc.textContent = 'Firmware automatically selected and ready for flashing. Click "Select Target Device" to continue.';
+                
+                // Show the continue button
+                if (continueBtn) {
+                    continueBtn.style.display = 'inline-block';
+                    continueBtn.disabled = false;
+                }
+                
+                // CRITICAL: Update the renderer.js currentSelectedImagePath
+                if (window.setCurrentSelectedImagePath && firmware.path) {
+                    window.setCurrentSelectedImagePath(firmware.path);
+                    console.log('✅ Firmware path communicated to renderer.js:', firmware.path);
+                }
+            }
+            
+            showNoFirmware() {
+                const container = document.getElementById('firmware-selected');
+                const nameEl = document.getElementById('auto-firmware-name');
+                const sizeEl = document.getElementById('auto-firmware-size');
+                const cardTitle = document.getElementById('card-title');
+                const cardDesc = document.getElementById('card-description');
+                const continueBtn = document.getElementById('continue-to-devices-btn');
+                
+                if (container) {
+                    container.style.display = 'block';
+                    // Reset visual styling for no firmware state
+                    container.style.borderColor = 'rgba(220, 53, 69, 0.4)';
+                    container.style.backgroundColor = 'rgba(220, 53, 69, 0.1)';
+                }
+                
+                if (nameEl) nameEl.textContent = '❌ No firmware available';
+                if (sizeEl) sizeEl.textContent = 'Please check for updates to download the latest firmware';
+                if (cardTitle) cardTitle.textContent = 'Firmware Required';
+                if (cardDesc) cardDesc.textContent = 'No firmware found. Please check for updates or ensure firmware is downloaded.';
+                
+                // Hide the continue button
+                if (continueBtn) {
+                    continueBtn.style.display = 'none';
+                    continueBtn.disabled = true;
+                }
+            }
+            
+            continueToDevices() {
+                // Navigate to device selection screen
+                if (window.switchToDeviceSelectionView) {
+                    window.switchToDeviceSelectionView();
+                } else {
+                    // Fallback method
+                    this.showView('device-selection-view');
+                }
+                this.showMessage('Select your target device', 'info');
+            }
+            
+            async exportLog() {
+                try {
+                    const result = await window.electronAPI.exportFlashLog('csv');
+                    if (result.success) {
+                        this.showMessage('Log exported successfully!', 'success');
+                    } else if (!result.canceled) {
+                        this.showMessage('Export failed: ' + result.error, 'error');
+                    }
+                } catch (error) {
+                    this.showMessage('Export failed: ' + error.message, 'error');
+                }
+            }
+            
+            showFlashCompletion(logEntry) {
+                // Update completion details
+                document.getElementById('completion-device').textContent = logEntry.device || '-';
+                document.getElementById('completion-serial').textContent = logEntry.serialNumber || 'Unknown';
+                document.getElementById('completion-firmware').textContent = logEntry.firmware || '-';
+                document.getElementById('completion-duration').textContent = window.electronAPI.formatDuration(logEntry.duration || 0);
+                
+                // Show completion view
+                this.showView('flash-completion-view');
+            }
+            
+            flashAnother() {
+                // Reset to main view for another flash operation
+                this.showView('image-selection-view');
+                this.showMessage('Ready for another flash operation', 'info');
+            }
+            
+            returnHome() {
+                // Return to main view
+                this.showView('image-selection-view');
+            }
+            
+            showView(viewId) {
+                const views = [
+                    'image-selection-view', 
+                    'device-selection-view', 
+                    'flashing-controls-view', 
+                    'flashing-progress-view', 
+                    'flash-completion-view'
+                ];
+                
+                views.forEach(view => {
+                    const element = document.getElementById(view);
+                    if (element) {
+                        element.style.display = view === viewId ? 'block' : 'none';
+                    }
+                });
+            }
+            
+            showMessage(message, type) {
+                // Use existing global message system from renderer.js
+                if (window.showGlobalMessage) {
+                    window.showGlobalMessage(message, type);
+                } else {
+                    console.log(`${type.toUpperCase()}: ${message}`);
+                }
+            }
+        }
+        
+        // Initialize when DOM is ready
+        document.addEventListener('DOMContentLoaded', () => {
+            window.updateManager = new SimpleUpdateManager();
+        });
+    </script>
 </body>
 </html>
