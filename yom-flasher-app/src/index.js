@@ -17,132 +17,16 @@ const store = new Store();
 const fileManager = new FileManager({
     apiBaseUrl: process.env.YOM_API_URL || 'http://localhost:3001',
     maxStoredVersions: 3,
-    pollingInterval: 5 * 60 * 1000, // 5 minutes
     downloadTimeout: 3600 * 1000, // 1 hour
     preventDowngrade: true
 });
 
-// Global state for polling
-let updatePollingInterval = null;
+// Global state
 let mainWindow = null;
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
 if (require('electron-squirrel-startup')) {
   app.quit();
-}
-
-/**
- * Auto-install missing system dependencies
- */
-async function autoInstallMissingDependencies(missingCommands) {
-    const commandToPackageMap = {
-        'smartctl': 'smartmontools',
-        'parted': 'parted',
-        'resize2fs': 'e2fsprogs',
-        'udisksctl': 'udisks2',
-        'sgdisk': 'gdisk',
-        'e2fsck': 'e2fsprogs',
-        'dd': 'coreutils',
-        'lsblk': 'util-linux',
-        'sudo': 'sudo'
-    };
-
-    const packagesToInstall = [];
-    const unresolvableCommands = [];
-
-    for (const command of missingCommands) {
-        const packageName = commandToPackageMap[command];
-        if (packageName && !packagesToInstall.includes(packageName)) {
-            packagesToInstall.push(packageName);
-        } else if (!packageName) {
-            unresolvableCommands.push(command);
-        }
-    }
-
-    if (packagesToInstall.length === 0) {
-        console.log('No packages to install.');
-        return { success: true, installed: [], failed: unresolvableCommands };
-    }
-
-    console.log(`📦 Auto-installing missing packages: ${packagesToInstall.join(', ')}`);
-
-    try {
-        // Show progress dialog
-        dialog.showMessageBox(mainWindow, {
-            type: 'info',
-            title: 'YOM Flash Tool - Installing Dependencies',
-            message: `Installing required system packages:\n\n${packagesToInstall.join(', ')}\n\nThis may take a few minutes...`,
-            buttons: ['Installing...'],
-            defaultId: 0
-        });
-
-        // Detect package manager and install
-        let installCommand;
-
-        // Check if apt is available (Debian/Ubuntu)
-        try {
-            await execFileAsync('which', ['apt']);
-            installCommand = `apt install -y ${packagesToInstall.join(' ')}`;
-        } catch (error) {
-            // Check if yum is available (RHEL/CentOS)
-            try {
-                await execFileAsync('which', ['yum']);
-                installCommand = `yum install -y ${packagesToInstall.join(' ')}`;
-            } catch (error) {
-                // Check if dnf is available (Fedora)
-                try {
-                    await execFileAsync('which', ['dnf']);
-                    installCommand = `dnf install -y ${packagesToInstall.join(' ')}`;
-                } catch (error) {
-                    throw new Error('No supported package manager found (apt, yum, or dnf)');
-                }
-            }
-        }
-
-        console.log(`Executing with sudo-prompt: ${installCommand}`);
-
-        // Execute installation with sudo prompt (WITHOUT "sudo" prefix)
-        return new Promise((resolve) => {
-            sudoPrompt.exec(installCommand, 
-                { name: 'YOM Flash Tool Install Dependencies' }, 
-                (error, stdout, stderr) => {
-                    if (error) {
-                        console.error('Installation failed:', error);
-                        dialog.showErrorBox(
-                            'YOM Flash Tool - Installation Failed',
-                            `Failed to install dependencies:\n\n${error.message}\n\nPlease install manually:\nsudo apt install ${packagesToInstall.join(' ')}`
-                        );
-                        resolve({ success: false, error: error.message, failed: packagesToInstall });
-                    } else {
-                        console.log('✅ Dependencies installed successfully');
-                        if (stdout) console.log('Install output:', stdout);
-                        
-                        dialog.showMessageBox(mainWindow, {
-                            type: 'info',
-                            title: 'YOM Flash Tool - Installation Complete',
-                            message: `Successfully installed:\n\n${packagesToInstall.join(', ')}\n\nPlease restart the application.`,
-                            buttons: ['Restart Now', 'Continue']
-                        }).then((result) => {
-                            if (result.response === 0) {
-                                app.relaunch();
-                                app.exit();
-                            }
-                        });
-                        
-                        resolve({ success: true, installed: packagesToInstall, failed: unresolvableCommands });
-                    }
-                }
-            );
-        });
-
-    } catch (error) {
-        console.error('Auto-install error:', error);
-        dialog.showErrorBox(
-            'YOM Flash Tool - Auto-Install Failed',
-            `Could not auto-install dependencies: ${error.message}\n\nPlease install manually:\nsudo apt install ${packagesToInstall.join(' ')}`
-        );
-        return { success: false, error: error.message, failed: packagesToInstall };
-    }
 }
 
 const createWindow = () => {
@@ -176,35 +60,6 @@ const createWindow = () => {
   return mainWindow;
 };
 
-// Start update polling
-function startUpdatePolling() {
-    if (updatePollingInterval) {
-        clearInterval(updatePollingInterval);
-    }
-    
-    updatePollingInterval = setInterval(async () => {
-        try {
-            const updateResult = await fileManager.checkForUpdates();
-            if (updateResult.hasUpdate && mainWindow) {
-                mainWindow.webContents.send('update:newVersionAvailable', updateResult.latest);
-            }
-        } catch (error) {
-            console.error('Polling update check failed:', error);
-        }
-    }, fileManager.config.pollingInterval);
-    
-    console.log(`Started update polling every ${fileManager.config.pollingInterval / 1000 / 60} minutes`);
-}
-
-// Stop update polling
-function stopUpdatePolling() {
-    if (updatePollingInterval) {
-        clearInterval(updatePollingInterval);
-        updatePollingInterval = null;
-        console.log('Stopped update polling');
-    }
-}
-
 app.whenReady().then(async () => {
   if (typeof fixPath === 'function') {
     fixPath();
@@ -214,100 +69,110 @@ app.whenReady().then(async () => {
 
   mainWindow = createWindow();
 
-  // === REGISTER ALL IPC HANDLERS FIRST ===
+  // === REGISTER ALL IPC HANDLERS ===
   console.log('📡 Registering IPC handlers...');
   
-  // === LEGACY FILE SELECTION HANDLERS (COMMENTED OUT) ===
-  /*
-  // LEGACY: Manual file selection - commented out for new automated flow
-  ipcMain.handle('dialog:selectImage', async (event, options = {}) => {
-    const lastOpenedDirectory = store.get('lastOpenedDirectory');
-    const { suggestedFilename } = options;
-
-    let dialogOptions = {
-        title: 'YOM Flash Tool - Select RAW Image File',
-        buttonLabel: 'Select Image',
-        properties: ['openFile'],
-        defaultPath: lastOpenedDirectory,
-        filters: [
-            { name: 'RAW Disk Images', extensions: ['img', 'iso', 'bin', 'raw', 'dmg'] },
-            { name: 'All Files', extensions: ['*'] }
-        ]
-    };
-
-    if (suggestedFilename && lastOpenedDirectory) {
-        const suggestedPath = path.join(lastOpenedDirectory, suggestedFilename);
-        try {
-            const fs = require('fs');
-            if (fs.existsSync(suggestedPath)) {
-                dialogOptions.defaultPath = suggestedPath;
+  // === SINGLE ADMIN SETUP HANDLER FOR LINEAR FLOW ===
+  ipcMain.handle('admin:setup', async () => {
+    try {
+        console.log('🔐 Admin setup requested from linear flow');
+        
+        // Check required commands first
+        const requiredCommands = ['dd', 'lsblk', 'parted', 'resize2fs', 'udisksctl', 'sgdisk', 'e2fsck', 'sudo', 'smartctl'];
+        const missingCommands = await checkAllRequiredCommands(requiredCommands);
+        
+        // Build setup command
+        let setupCommand = `echo "YOM Flash Tool requesting admin privileges"`;
+        
+        // Add dependency installation if needed
+        if (missingCommands.length > 0) {
+            console.log(`📦 Installing missing dependencies: ${missingCommands.join(', ')}`);
+            
+            // Detect package manager and add install command
+            try {
+                await execFileAsync('which', ['apt']);
+                setupCommand += ` && apt update && apt install -y ${missingCommands.map(cmd => {
+                    const packageMap = {
+                        'smartctl': 'smartmontools',
+                        'parted': 'parted',
+                        'resize2fs': 'e2fsprogs',
+                        'udisksctl': 'udisks2',
+                        'sgdisk': 'gdisk',
+                        'e2fsck': 'e2fsprogs',
+                        'dd': 'coreutils',
+                        'lsblk': 'util-linux',
+                        'sudo': 'sudo'
+                    };
+                    return packageMap[cmd] || cmd;
+                }).filter((pkg, index, arr) => arr.indexOf(pkg) === index).join(' ')}`;
+            } catch (error) {
+                // Try other package managers
+                try {
+                    await execFileAsync('which', ['dnf']);
+                    setupCommand += ` && dnf install -y ${missingCommands.join(' ')}`;
+                } catch (error) {
+                    try {
+                        await execFileAsync('which', ['yum']);
+                        setupCommand += ` && yum install -y ${missingCommands.join(' ')}`;
+                    } catch (error) {
+                        console.warn('No supported package manager found');
+                    }
+                }
             }
-        } catch (error) {
-            console.log('Could not pre-select suggested file:', error.message);
         }
-    }
-
-    const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, dialogOptions);
-    
-    if (canceled || filePaths.length === 0) {
-        return null;
-    } else {
-        const selectedFilePath = filePaths[0];
-        store.set('lastOpenedDirectory', path.dirname(selectedFilePath));
-        return selectedFilePath;
+        
+        // Add directory creation
+        const artifactsPath = path.join(process.cwd(), 'artifacts');
+        setupCommand += ` && mkdir -p "${artifactsPath}/RAW" "${artifactsPath}/Export" "${artifactsPath}/Temp" "${artifactsPath}/Logs"`;
+        setupCommand += ` && chmod -R 755 "${artifactsPath}"`;
+        setupCommand += ` && chown -R ${process.env.USER}:${process.env.USER} "${artifactsPath}"`;
+        
+        console.log('🔧 Executing admin setup...');
+        
+        // Execute with sudo prompt
+        return new Promise((resolve) => {
+            sudoPrompt.exec(setupCommand, 
+                { name: 'YOM Flash Tool Setup' }, 
+                async (error, stdout, stderr) => {
+                    if (error) {
+                        console.error('❌ Admin setup failed:', error.message);
+                        resolve({ 
+                            success: false, 
+                            error: error.message,
+                            details: stderr 
+                        });
+                    } else {
+                        console.log('✅ Admin setup completed successfully');
+                        if (stdout) console.log('Setup output:', stdout);
+                        
+                        // Initialize file manager paths after successful setup
+                        try {
+                            await fileManager.initializePaths();
+                            console.log('✅ FileManager initialized');
+                        } catch (initError) {
+                            console.warn('FileManager initialization warning:', initError);
+                        }
+                        
+                        resolve({ 
+                            success: true,
+                            dependenciesInstalled: missingCommands,
+                            output: stdout
+                        });
+                    }
+                }
+            );
+        });
+        
+    } catch (error) {
+        console.error('❌ Admin setup error:', error);
+        return { 
+            success: false, 
+            error: error.message 
+        };
     }
   });
 
-  // LEGACY: Drag and drop validation - commented out for new automated flow
-  ipcMain.handle('file:validateDraggedFile', async (event, fileName, possiblePaths = []) => {
-      const fs = require('fs');
-      
-      const searchPaths = [
-          ...possiblePaths,
-          process.cwd(),
-          require('os').homedir(),
-          path.join(require('os').homedir(), 'Downloads'),
-          path.join(require('os').homedir(), 'Desktop'),
-          path.join(require('os').homedir(), 'Documents'),
-      ];
-      
-      const lastDir = store.get('lastOpenedDirectory');
-      if (lastDir) {
-          searchPaths.unshift(lastDir);
-      }
-      
-      for (const searchPath of searchPaths) {
-          try {
-              const fullPath = path.join(searchPath, fileName);
-              if (fs.existsSync(fullPath)) {
-                  const stats = fs.statSync(fullPath);
-                  store.set('lastOpenedDirectory', searchPath);
-                  
-                  return {
-                      success: true,
-                      path: fullPath,
-                      name: fileName,
-                      size: stats.size,
-                      found: true
-                  };
-              }
-          } catch (error) {
-              continue;
-          }
-      }
-      
-      return {
-          success: false,
-          found: false,
-          searched: searchPaths,
-          message: `Could not locate "${fileName}" in common directories`
-      };
-  });
-  */
-
-  // === ACTIVE IPC HANDLERS ===
-
-  // File info handler (still needed for firmware file info)
+  // === FILE OPERATIONS ===
   ipcMain.handle('file:getInfo', async (event, filePath) => {
       try {
           const fs = require('fs');
@@ -330,7 +195,7 @@ app.whenReady().then(async () => {
       }
   });
 
-  // System device listing
+  // === SYSTEM OPERATIONS ===
   ipcMain.handle('system:listDevices', async () => {
       try {
           const devices = await listBlockDevices();
@@ -341,7 +206,7 @@ app.whenReady().then(async () => {
       }
   });
 
-  // Enhanced flash operation with serial logging
+  // === FLASH OPERATIONS ===
   ipcMain.handle('flash:start', async (event, imagePath, devicePath) => {
       if (!imagePath || !devicePath) {
           return { success: false, message: 'Image path or device path is missing.' };
@@ -435,7 +300,7 @@ app.whenReady().then(async () => {
       }
   });
 
-  // Partition extension
+  // === POST-FLASH OPERATIONS ===
   ipcMain.handle('partition:extend', async (event, devicePath, partitionNumber) => {
       if (!devicePath) {
           return { success: false, message: 'Device path is missing for partition extension.' };
@@ -457,7 +322,6 @@ app.whenReady().then(async () => {
       }
   });
 
-  // Safe device ejection
   ipcMain.handle('device:eject', async (event, devicePath) => {
       if (!devicePath) {
           return { success: false, message: 'Device path is missing for eject.' };
@@ -478,7 +342,7 @@ app.whenReady().then(async () => {
       }
   });
 
-  // Dialog helpers
+  // === DIALOG HELPERS ===
   ipcMain.on('dialog:showError', (event, title, content) => {
       dialog.showErrorBox(
           title ? `YOM Flash Tool - ${title}` : 'YOM Flash Tool - Error', 
@@ -496,11 +360,10 @@ app.whenReady().then(async () => {
       });
   });
 
-  // === NEW AUTOMATED UPDATE MANAGEMENT IPC HANDLERS (Using FileManager) ===
-  
-  // Update checking with polling
+  // === UPDATE MANAGEMENT IPC HANDLERS ===
   ipcMain.handle('update:check', async () => {
       try {
+          console.log('🔍 Active update check requested');
           return await fileManager.checkForUpdates();
       } catch (error) {
           console.error('Update check failed:', error);
@@ -508,7 +371,6 @@ app.whenReady().then(async () => {
       }
   });
 
-  // Get local versions
   ipcMain.handle('update:getLocalVersions', async () => {
       try {
           return await fileManager.getLocalVersions();
@@ -518,7 +380,6 @@ app.whenReady().then(async () => {
       }
   });
 
-  // Get auto-selected firmware
   ipcMain.handle('update:getAutoSelected', async () => {
       try {
           return await fileManager.getAutoSelectedFirmware();
@@ -528,11 +389,13 @@ app.whenReady().then(async () => {
       }
   });
 
-  // Download firmware (manual trigger with zip support)
+  // === FIXED: DOWNLOAD HANDLER WITH PROPER EXTRACTION COMPLETION ===
   ipcMain.handle('update:download', async (event, version) => {
       const webContents = event.sender;
       
       try {
+          console.log(`🔽 Active download requested for version: ${version}`);
+          
           const downloadPath = await fileManager.downloadFirmware(version, (progress) => {
               webContents.send('update:downloadProgress', {
                   version,
@@ -540,8 +403,12 @@ app.whenReady().then(async () => {
               });
           });
           
-          // After successful download, automatically refresh and update UI
-          console.log('🔄 Download completed, refreshing firmware selection...');
+          // FIXED: After successful download, the FileManager already extracts the firmware
+          // and places it in the RAW folder. We need to signal completion properly.
+          console.log('🔄 Download and extraction completed, refreshing firmware selection...');
+          
+          // Small delay to ensure file system operations are complete
+          await new Promise(resolve => setTimeout(resolve, 1000));
           
           // Get the updated auto-selected firmware
           const updatedFirmware = await fileManager.getAutoSelectedFirmware();
@@ -549,22 +416,42 @@ app.whenReady().then(async () => {
           if (updatedFirmware) {
               console.log(`✅ Auto-selected updated firmware: ${updatedFirmware.filename}`);
               
-              // Send updated firmware info to frontend
+              // FIXED: Send updated firmware info to frontend with proper completion flag
               webContents.send('update:firmwareRefreshed', {
                   firmware: updatedFirmware,
                   version: version,
-                  downloadedPath: downloadPath
+                  downloadedPath: downloadPath,
+                  extractionComplete: true, // This is the key flag the frontend waits for
+                  success: true
+              });
+          } else {
+              console.warn('⚠️  Could not auto-select firmware after download');
+              // Still send refresh event to prevent UI from hanging
+              webContents.send('update:firmwareRefreshed', {
+                  version: version,
+                  downloadedPath: downloadPath,
+                  extractionComplete: true, // Still set to true to unblock UI
+                  success: false,
+                  error: 'Could not auto-select firmware'
               });
           }
           
           return { success: true, path: downloadPath, firmware: updatedFirmware };
       } catch (error) {
           console.error('Download failed:', error);
+          
+          // FIXED: Send failure event with extraction flag to prevent UI from hanging
+          webContents.send('update:firmwareRefreshed', {
+              version: version,
+              extractionComplete: false, // Set to false for actual failures
+              success: false,
+              error: error.message
+          });
+          
           return { success: false, error: error.message };
       }
   });
 
-  // Export logs using FileManager
   ipcMain.handle('update:exportLog', async (event, format) => {
       try {
           // Get log data from FileManager
@@ -594,7 +481,6 @@ app.whenReady().then(async () => {
       }
   });
 
-  // Get device serial number using FileManager
   ipcMain.handle('device:getSerial', async (event, devicePath) => {
       try {
           const serial = await fileManager.getDeviceSerial(devicePath);
@@ -605,7 +491,6 @@ app.whenReady().then(async () => {
       }
   });
 
-  // Storage validation
   ipcMain.handle('update:validateStorage', async () => {
       try {
           // Use FileManager to get storage info
@@ -624,7 +509,6 @@ app.whenReady().then(async () => {
       }
   });
 
-  // Manual storage cleanup
   ipcMain.handle('update:cleanupStorage', async () => {
       try {
           await fileManager.manageStorageLimit();
@@ -637,83 +521,7 @@ app.whenReady().then(async () => {
   });
 
   console.log('✅ IPC handlers registered');
-
-  // === ENHANCED DEPENDENCY CHECKING WITH AUTO-INSTALL ===
-  console.log('🔍 Checking required system commands...');
-  const requiredCommands = ['dd', 'lsblk', 'parted', 'resize2fs', 'udisksctl', 'sgdisk', 'e2fsck', 'sudo', 'smartctl'];
-  const missingCommands = await checkAllRequiredCommands(requiredCommands);
-  
-  if (missingCommands.length > 0) {
-      console.log(`❌ Missing commands: ${missingCommands.join(', ')}`);
-      console.log('📋 Will install missing dependencies after getting admin privileges...');
-  } else {
-      console.log('✅ All required commands found');
-  }
-
-  // === ENHANCED DIRECTORY CREATION WITH SINGLE SUDO PROMPT ===
-  console.log('📁 Setting up directory structure...');
-  
-  // SINGLE SUDO COMMAND: Get admin privileges, install dependencies, and create directories
-  console.log('🔐 Requesting administrator privileges...');
-  
-  let setupCommand = `echo "YOM Flash Tool requesting admin privileges"`;
-  
-  // Add dependency installation if needed
-  if (missingCommands.length > 0) {
-    setupCommand += ` && apt update && apt install -y smartmontools`;
-  }
-  
-  // Add directory creation
-  setupCommand += ` && mkdir -p "${process.cwd()}/artifacts/RAW" "${process.cwd()}/artifacts/Export" "${process.cwd()}/artifacts/Temp" "${process.cwd()}/artifacts/Logs" && chmod -R 755 "${process.cwd()}/artifacts" && chown -R ${process.env.USER}:${process.env.USER} "${process.cwd()}/artifacts"`;
-  
-  sudoPrompt.exec(setupCommand, 
-    { name: 'YOM Flash Tool Setup' }, 
-    async (error, stdout, stderr) => {
-      if (error) {
-        console.error('❌ Failed to complete setup with admin privileges:', error.message);
-        
-        // Try fallback for directories only
-        try {
-          const fs = require('fs').promises;
-          await fs.mkdir(path.join(process.cwd(), 'artifacts', 'RAW'), { recursive: true });
-          await fs.mkdir(path.join(process.cwd(), 'artifacts', 'Export'), { recursive: true });
-          await fs.mkdir(path.join(process.cwd(), 'artifacts', 'Temp'), { recursive: true });
-          await fs.mkdir(path.join(process.cwd(), 'artifacts', 'Logs'), { recursive: true });
-          console.log('✅ Directories created with fallback method');
-          
-          if (missingCommands.length > 0) {
-            console.warn('⚠️  Please install missing dependencies manually: sudo apt install smartmontools');
-          }
-        } catch (fallbackError) {
-          console.error('❌ Fallback setup also failed:', fallbackError);
-          dialog.showErrorBox(
-            'YOM Flash Tool - Setup Failed', 
-            'Failed to complete setup. Please run manually:\nsudo apt install smartmontools\nmkdir -p artifacts/{RAW,Export,Temp,Logs}'
-          );
-        }
-      } else {
-        console.log('✅ Admin setup completed successfully');
-        if (missingCommands.length > 0) {
-          console.log('✅ Dependencies installed');
-        }
-        console.log('✅ Directories created with proper permissions');
-        if (stdout) console.log('Setup output:', stdout);
-      }
-      
-      // Initialize file manager after setup
-      try {
-        await fileManager.initializePaths();
-        console.log('✅ FileManager initialized successfully');
-      } catch (initError) {
-        console.error('❌ FileManager initialization failed:', initError);
-      }
-      
-      // Start update polling after everything is set up
-      setTimeout(() => {
-        startUpdatePolling();
-      }, 2000); // Start polling after 2 seconds
-    }
-  );
+  console.log('🚀 YOM Flash Tool ready - using enhanced linear flow with single admin setup');
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -723,14 +531,13 @@ app.whenReady().then(async () => {
 });
 
 app.on('window-all-closed', () => {
-  stopUpdatePolling(); // Clean up polling on app close
   if (process.platform !== 'darwin') {
     app.quit();
   }
 });
 
 app.on('before-quit', () => {
-  stopUpdatePolling(); // Clean up polling before quit
+  // Clean shutdown
 });
 
 app.setAsDefaultProtocolClient('yom-flash');

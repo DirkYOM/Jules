@@ -22,80 +22,67 @@
     <main id="app-content">
         <div id="global-message-container" class="message-container" style="display: none;"></div>
         
-        <!-- NEW: Update banner (uses existing selected-file styling) -->
-        <div id="update-banner" class="selected-file" style="display: none;">
-            <div style="display: flex; justify-content: space-between; align-items: center;">
-                <div style="display: flex; align-items: center; gap: 12px;">
-                    <span>⚡</span>
-                    <span class="file-name">
-                        New version <span id="update-version"></span> available
-                    </span>
-                </div>
-                <button id="download-update-btn" style="padding: 8px 16px; font-size: 14px;">Download</button>
-            </div>
-        </div>
-        
-        <section id="image-selection-view">
+        <!-- SCREEN 1: FIRMWARE MANAGEMENT (Linear Flow) -->
+        <section id="firmware-screen" class="screen">
             <h1>flash tool</h1>
             <p class="subtitle">devs, operators, and community — start here.</p>
             
-            <!-- NEW: Auto-selected firmware display (uses existing selected-file styling) -->
-            <div id="firmware-selected" class="selected-file" style="display: none;">
-                <div class="file-name" id="auto-firmware-name">Loading firmware...</div>
-                <div class="file-size" id="auto-firmware-size">Checking for latest version...</div>
+            <!-- Firmware Status Display -->
+            <div id="firmware-status" class="firmware-status">
+                <div class="status-icon" id="status-icon">🚀</div>
+                <div class="status-content">
+                    <div class="status-title" id="status-title">Initializing...</div>
+                    <div class="status-subtitle" id="status-subtitle">Please wait while the application starts up</div>
+                </div>
             </div>
             
-            <div class="card">
-                <h2 id="card-title">Select Image File</h2>
-                <p id="card-description">Please select the RAW image file you want to flash to the SSD.</p>
-                
-                <!-- LEGACY: Upload area - hidden but kept for compatibility -->
-                <div class="upload-area" id="upload-area" style="display: none;">
-                    <div class="upload-icon">
-                        <svg viewBox="0 0 48 48" fill="currentColor">
-                            <path d="M14 2H6a2 2 0 0 0-2 2v8M2 30v8a2 2 0 0 0 2 2h8M30 2h8a2 2 0 0 1 2 2v8M42 30v8a2 2 0 0 1-2 2h-8M24 12v12M18 18l6-6 6 6"/>
-                        </svg>
+            <!-- Download Progress Container -->
+            <div id="download-progress-container" class="progress-container" style="display: none;">
+                <div class="progress-section">
+                    <div class="progress-label">Downloading Firmware</div>
+                    <div class="progress-bar">
+                        <div id="download-progress-bar" class="progress-fill">0%</div>
                     </div>
-                    <div class="upload-text">Choose Image File</div>
-                    <div class="upload-subtext">Click to select RAW image file</div>
-                    <input type="file" id="file-input" accept=".img,.raw,.iso,.bin" style="display: none;">
+                    <div id="download-progress-text" class="progress-text">Preparing download...</div>
                 </div>
-                
-                <div id="selected-file" class="selected-file" style="display: none;">
-                    <div class="file-name" id="file-name"></div>
-                    <div class="file-size" id="file-size"></div>
+            </div>
+            
+            <!-- Unpacking Spinner Container -->
+            <div id="unpacking-container" class="progress-container" style="display: none;">
+                <div class="progress-section">
+                    <div class="progress-label">Unpacking Firmware</div>
+                    <div class="spinner-container">
+                        <div class="spinner"></div>
+                        <div class="spinner-text">Unpacking firmware file...</div>
+                    </div>
                 </div>
-                
-                <!-- LEGACY: Manual selection - hidden but kept -->
-                <button id="select-image-button" style="display: none;">Choose Image File...</button>
-                <div id="selected-image-path-container" style="margin-top: 15px; min-height: 20px; display: none;">
-                    <p><strong>Selected file:</strong> <span id="selected-image-path-text">None</span></p>
+            </div>
+            
+            <!-- Flash Progress Container -->
+            <div id="flash-progress-container" class="progress-container" style="display: none;">
+                <div class="progress-section">
+                    <div class="progress-label">Flashing Device</div>
+                    <div class="progress-bar">
+                        <div id="flash-progress-bar" class="progress-fill">0%</div>
+                    </div>
+                    <div id="flash-progress-text" class="progress-text">Starting flash...</div>
                 </div>
-                
-                <!-- NEW: Action buttons using existing button styles -->
-                <div style="display: flex; gap: 12px; justify-content: center; margin-top: 20px;">
-                    <button id="export-log-btn" class="cancel-button" style="margin-top: 0; padding: 12px 20px; font-size: 14px;">
-                        📄 Export Log
-                    </button>
-                    <button id="check-updates-btn" class="cancel-button" style="margin-top: 0; padding: 12px 20px; font-size: 14px;">
-                        🔄 Check Updates
-                    </button>
-                    <button id="continue-to-devices-btn" class="flash-button" style="margin-top: 0; padding: 12px 24px; font-size: 16px; display: none;">
-                        ➡️ Select Target Device
-                    </button>
-                </div>
+                <div id="flash-raw-output" class="raw-output" style="display: none;"></div>
             </div>
         </section>
 
-        <section id="device-selection-view" style="display: none;">
+        <!-- SCREEN 2: DEVICE SELECTION -->
+        <section id="device-screen" class="screen" style="display: none;">
             <div class="card">
+                <button id="back-to-firmware-btn" class="back-button">← Back</button>
+                
                 <h2>Select Target Device</h2>
                 <p><strong style="color: #00FF44;">WARNING:</strong> ALL DATA ON THE SELECTED DEVICE WILL BE ERASED.</p>
                 
-                <button id="refresh-devices-button">refresh device list</button>
+                <button id="refresh-devices-button">Refresh Device List</button>
                 
                 <div id="device-list-container" class="device-list">
-                    <p>Click "refresh device list" to load devices.</p>
+                    <p>Loading devices...</p>
                 </div>
                 
                 <div id="selected-device-info-container" class="selected-info">
@@ -104,37 +91,34 @@
             </div>
         </section>
 
-        <section id="flashing-controls-view" style="display: none;">
+        <!-- SCREEN 3: FLASH READY -->
+        <section id="flash-ready-screen" class="screen" style="display: none;">
             <div class="card text-center">
-                <button id="start-flashing-button" class="flash-button">start flash</button>
-            </div>
-        </section>
-
-        <section id="flashing-progress-view" style="display: none;">
-            <div class="card">
-                <h2>Flashing in Progress</h2>
-                <p>Please do not close the application or remove the target device.</p>
+                <button id="back-to-devices-btn" class="back-button">← Back to Device Selection</button>
                 
-                <div class="progress-container">
-                    <div class="progress-bar">
-                        <div id="progress-bar" class="progress-fill">0%</div>
+                <h2 style="color: #00FF44; margin-bottom: 24px;">✅ Ready to Flash</h2>
+                
+                <div class="flash-summary">
+                    <div class="summary-item">
+                        <strong>Firmware:</strong> <span id="summary-firmware">-</span>
                     </div>
-                    <div id="progress-speed-text" class="progress-text">Speed: -</div>
+                    <div class="summary-item">
+                        <strong>Target Device:</strong> <span id="summary-device">-</span>
+                    </div>
                 </div>
                 
-                <div id="progress-raw-output" class="raw-output"></div>
+                <button id="start-flash-button" class="flash-button">Start Flash</button>
                 
-                <button id="cancel-flashing-button" class="cancel-button" disabled 
-                        title="Cancel functionality is not yet implemented.">
-                    cancel flash
-                </button>
+                <div class="flash-warning" style="margin-top: 20px; padding: 16px; background: rgba(220, 53, 69, 0.1); border: 1px solid rgba(220, 53, 69, 0.3); border-radius: 8px;">
+                    <p style="color: #dc3545; font-weight: 500; margin: 0;">⚠️ This will permanently erase all data on the selected device!</p>
+                </div>
             </div>
         </section>
 
-        <!-- NEW: Flash completion section using existing card styling -->
-        <section id="flash-completion-view" style="display: none;">
+        <!-- SCREEN 4: FLASH COMPLETION -->
+        <section id="flash-completion-screen" class="screen" style="display: none;">
             <div class="card text-center">
-                <h2 style="color: #00FF44; margin-bottom: 24px;">✅ Flash Completed Successfully!</h2>
+                <h2 style="color: #00FF44; margin-bottom: 24px;">🎉 Flash Completed Successfully!</h2>
                 
                 <div class="selected-info" style="text-align: left; margin-bottom: 24px;">
                     <p><strong>Device:</strong> <span id="completion-device">-</span></p>
@@ -145,7 +129,7 @@
                 
                 <div style="display: flex; gap: 16px; justify-content: center; flex-wrap: wrap;">
                     <button id="flash-another-btn" class="flash-button">🔄 Flash Another Device</button>
-                    <button id="return-home-btn" class="cancel-button" style="margin-top: 0;">🏠 Return to Main Menu</button>
+                    <button id="return-home-btn" class="cancel-button" style="margin-top: 0;">🏠 Exit Application</button>
                 </div>
             </div>
         </section>
@@ -155,278 +139,677 @@
         <p>&copy; 2024 YOM. App Version 1.0.0</p>
     </footer>
 
-    <script src="./renderer.js"></script>
-    <script>
-        // Simple automated update manager with firmware refresh support
-        let currentSelectedImagePath = null; // Keep compatibility with existing renderer.js
-        
-        class SimpleUpdateManager {
-            constructor() {
-                this.init();
-            }
-            
-            async init() {
-                // Check for updates and load firmware on startup
-                setTimeout(() => this.checkForUpdates(), 2000);
-                setTimeout(() => this.loadAutoSelectedFirmware(), 3000);
-                
-                // Register event listeners
-                document.getElementById('download-update-btn')?.addEventListener('click', () => this.downloadUpdate());
-                document.getElementById('check-updates-btn')?.addEventListener('click', () => this.checkForUpdates());
-                document.getElementById('export-log-btn')?.addEventListener('click', () => this.exportLog());
-                document.getElementById('flash-another-btn')?.addEventListener('click', () => this.flashAnother());
-                document.getElementById('return-home-btn')?.addEventListener('click', () => this.returnHome());
-                document.getElementById('continue-to-devices-btn')?.addEventListener('click', () => this.continueToDevices());
-                
-                // Listen for polling updates from main process
-                if (window.electronAPI?.onNewVersionAvailable) {
-                    window.electronAPI.onNewVersionAvailable((version) => this.showUpdateBanner(version));
-                }
-                
-                // Listen for download progress
-                if (window.electronAPI?.onDownloadProgress) {
-                    window.electronAPI.onDownloadProgress((progress) => this.updateDownloadProgress(progress));
-                }
-                
-                // NEW: Listen for firmware refresh after download
-                if (window.electronAPI?.onFirmwareRefreshed) {
-                    window.electronAPI.onFirmwareRefreshed((data) => this.handleFirmwareRefresh(data));
-                }
-            }
-            
-            async checkForUpdates() {
-                try {
-                    const result = await window.electronAPI.checkForUpdates();
-                    if (result.hasUpdate) {
-                        this.showUpdateBanner(result.latest);
-                    } else if (!result.error) {
-                        this.showMessage('You have the latest version', 'success');
-                    }
-                } catch (error) {
-                    console.error('Update check failed:', error);
-                }
-            }
-            
-            async loadAutoSelectedFirmware() {
-                try {
-                    const firmware = await window.electronAPI.getAutoSelectedFirmware();
-                    if (firmware && firmware.path) {
-                        currentSelectedImagePath = firmware.path; // Set for compatibility with existing renderer.js
-                        this.showFirmwareSelected(firmware);
-                    } else {
-                        this.showNoFirmware();
-                    }
-                } catch (error) {
-                    console.error('Failed to load firmware:', error);
-                    this.showNoFirmware();
-                }
-            }
-            
-            showUpdateBanner(version) {
-                const banner = document.getElementById('update-banner');
-                const versionSpan = document.getElementById('update-version');
-                if (banner && versionSpan) {
-                    versionSpan.textContent = version.version;
-                    banner.style.display = 'block';
-                    this.pendingUpdate = version;
-                }
-            }
-            
-            async downloadUpdate() {
-                if (!this.pendingUpdate) return;
-                
-                const btn = document.getElementById('download-update-btn');
-                const originalText = btn.textContent;
-                btn.disabled = true;
-                btn.textContent = 'Downloading...';
-                
-                try {
-                    const result = await window.electronAPI.downloadFirmware(this.pendingUpdate.version);
-                    if (result.success) {
-                        document.getElementById('update-banner').style.display = 'none';
-                        this.showMessage('Download completed successfully!', 'success');
-                        // Firmware refresh will be handled automatically by the firmware refresh event
-                    } else {
-                        this.showMessage('Download failed: ' + result.error, 'error');
-                    }
-                } catch (error) {
-                    this.showMessage('Download failed: ' + error.message, 'error');
-                } finally {
-                    btn.disabled = false;
-                    btn.textContent = originalText;
-                }
-            }
-            
-            // NEW: Handle automatic firmware refresh after download
-            handleFirmwareRefresh(data) {
-                console.log('🔄 Firmware refreshed after download:', data);
-                
-                if (data.firmware && data.firmware.path) {
-                    // Update global selected path for compatibility
-                    currentSelectedImagePath = data.firmware.path;
-                    
-                    // CRITICAL: Also update renderer.js
-                    if (window.setCurrentSelectedImagePath) {
-                        window.setCurrentSelectedImagePath(data.firmware.path);
-                    }
-                    
-                    // Update UI to show new firmware
-                    this.showFirmwareSelected(data.firmware);
-                    
-                    // Show success message with version info
-                    this.showMessage(`✅ Downloaded and selected ${data.version} for flashing`, 'success');
-                    
-                    // Auto-advance to device selection if desired
-                    // Uncomment the next line to auto-advance:
-                    // setTimeout(() => window.switchToDeviceSelectionView?.(), 2000);
-                } else {
-                    console.warn('Firmware refresh data missing firmware info');
-                }
-            }
-            
-            updateDownloadProgress(progress) {
-                const btn = document.getElementById('download-update-btn');
-                if (btn && progress.progress !== undefined) {
-                    btn.textContent = `${progress.progress}%`;
-                }
-            }
-            
-            showFirmwareSelected(firmware) {
-                const container = document.getElementById('firmware-selected');
-                const nameEl = document.getElementById('auto-firmware-name');
-                const sizeEl = document.getElementById('auto-firmware-size');
-                const cardTitle = document.getElementById('card-title');
-                const cardDesc = document.getElementById('card-description');
-                const continueBtn = document.getElementById('continue-to-devices-btn');
-                
-                if (container) {
-                    container.style.display = 'block';
-                    // Add visual indicator that firmware is selected and ready
-                    container.style.borderColor = 'rgba(0, 255, 68, 0.6)';
-                    container.style.backgroundColor = 'rgba(0, 255, 68, 0.15)';
-                }
-                
-                if (nameEl) nameEl.textContent = `✅ ${firmware.filename || 'Unknown firmware'}`;
-                if (sizeEl) sizeEl.textContent = `${window.electronAPI.formatFileSize(firmware.size || 0)} • ${firmware.version || 'Unknown version'} • Ready for flashing`;
-                if (cardTitle) cardTitle.textContent = '✅ Firmware Ready';
-                if (cardDesc) cardDesc.textContent = 'Firmware automatically selected and ready for flashing. Click "Select Target Device" to continue.';
-                
-                // Show the continue button
-                if (continueBtn) {
-                    continueBtn.style.display = 'inline-block';
-                    continueBtn.disabled = false;
-                }
-                
-                // CRITICAL: Update the renderer.js currentSelectedImagePath
-                if (window.setCurrentSelectedImagePath && firmware.path) {
-                    window.setCurrentSelectedImagePath(firmware.path);
-                    console.log('✅ Firmware path communicated to renderer.js:', firmware.path);
-                }
-            }
-            
-            showNoFirmware() {
-                const container = document.getElementById('firmware-selected');
-                const nameEl = document.getElementById('auto-firmware-name');
-                const sizeEl = document.getElementById('auto-firmware-size');
-                const cardTitle = document.getElementById('card-title');
-                const cardDesc = document.getElementById('card-description');
-                const continueBtn = document.getElementById('continue-to-devices-btn');
-                
-                if (container) {
-                    container.style.display = 'block';
-                    // Reset visual styling for no firmware state
-                    container.style.borderColor = 'rgba(220, 53, 69, 0.4)';
-                    container.style.backgroundColor = 'rgba(220, 53, 69, 0.1)';
-                }
-                
-                if (nameEl) nameEl.textContent = '❌ No firmware available';
-                if (sizeEl) sizeEl.textContent = 'Please check for updates to download the latest firmware';
-                if (cardTitle) cardTitle.textContent = 'Firmware Required';
-                if (cardDesc) cardDesc.textContent = 'No firmware found. Please check for updates or ensure firmware is downloaded.';
-                
-                // Hide the continue button
-                if (continueBtn) {
-                    continueBtn.style.display = 'none';
-                    continueBtn.disabled = true;
-                }
-            }
-            
-            continueToDevices() {
-                // Navigate to device selection screen
-                if (window.switchToDeviceSelectionView) {
-                    window.switchToDeviceSelectionView();
-                } else {
-                    // Fallback method
-                    this.showView('device-selection-view');
-                }
-                this.showMessage('Select your target device', 'info');
-            }
-            
-            async exportLog() {
-                try {
-                    const result = await window.electronAPI.exportFlashLog('csv');
-                    if (result.success) {
-                        this.showMessage('Log exported successfully!', 'success');
-                    } else if (!result.canceled) {
-                        this.showMessage('Export failed: ' + result.error, 'error');
-                    }
-                } catch (error) {
-                    this.showMessage('Export failed: ' + error.message, 'error');
-                }
-            }
-            
-            showFlashCompletion(logEntry) {
-                // Update completion details
-                document.getElementById('completion-device').textContent = logEntry.device || '-';
-                document.getElementById('completion-serial').textContent = logEntry.serialNumber || 'Unknown';
-                document.getElementById('completion-firmware').textContent = logEntry.firmware || '-';
-                document.getElementById('completion-duration').textContent = window.electronAPI.formatDuration(logEntry.duration || 0);
-                
-                // Show completion view
-                this.showView('flash-completion-view');
-            }
-            
-            flashAnother() {
-                // Reset to main view for another flash operation
-                this.showView('image-selection-view');
-                this.showMessage('Ready for another flash operation', 'info');
-            }
-            
-            returnHome() {
-                // Return to main view
-                this.showView('image-selection-view');
-            }
-            
-            showView(viewId) {
-                const views = [
-                    'image-selection-view', 
-                    'device-selection-view', 
-                    'flashing-controls-view', 
-                    'flashing-progress-view', 
-                    'flash-completion-view'
-                ];
-                
-                views.forEach(view => {
-                    const element = document.getElementById(view);
-                    if (element) {
-                        element.style.display = view === viewId ? 'block' : 'none';
-                    }
-                });
-            }
-            
-            showMessage(message, type) {
-                // Use existing global message system from renderer.js
-                if (window.showGlobalMessage) {
-                    window.showGlobalMessage(message, type);
-                } else {
-                    console.log(`${type.toUpperCase()}: ${message}`);
-                }
-            }
+    <style>
+        /* Spinner styles for unpacking */
+        .spinner-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 16px;
+            padding: 20px;
         }
         
-        // Initialize when DOM is ready
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 4px solid rgba(255, 255, 255, 0.1);
+            border-left: 4px solid #00FF44;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .spinner-text {
+            color: #ffffff;
+            font-size: 14px;
+            text-align: center;
+        }
+    </style>
+
+    <script>
+        // YOM Flash Tool - FIXED Final Version
         document.addEventListener('DOMContentLoaded', () => {
-            window.updateManager = new SimpleUpdateManager();
+            
+            class EnhancedFlashApp {
+                constructor() {
+                    this.currentStep = 'init';
+                    this.firmwareInfo = null;
+                    this.selectedDevice = null;
+                    this.isProcessing = false;
+                    
+                    // Flow steps
+                    this.steps = {
+                        'init': 'Initialization',
+                        'password': 'Password Authentication', 
+                        'check-updates': 'Checking for Updates',
+                        'download': 'Downloading Firmware',
+                        'unpacking': 'Unpacking Firmware',
+                        'auto-select': 'Auto-selecting Firmware',
+                        'device-selection': 'Device Selection',
+                        'final-check': 'Final Version Check',
+                        'flash-ready': 'Ready to Flash',
+                        'flashing': 'Flashing Device',
+                        'extending': 'Extending Partition',
+                        'logging': 'Logging Operation',
+                        'complete': 'Operation Complete'
+                    };
+                    
+                    this.init();
+                }
+                
+                async init() {
+                    console.log('🚀 Starting Enhanced Flash App Flow');
+                    this.updateUI('init', 'Initializing application...');
+                    
+                    // Start the linear flow
+                    await this.executeFlow();
+                }
+                
+                async executeFlow() {
+                    try {
+                        // Step 1: Password Authentication
+                        await this.stepPasswordPrompt();
+                        
+                        // Step 2: Check for Updates
+                        await this.stepCheckUpdates();
+                        
+                        // Step 3: Download + Unpack if needed
+                        if (this.needsDownload) {
+                            await this.stepDownloadAndUnpack();
+                        }
+                        
+                        // Step 4: Auto-select latest firmware
+                        await this.stepAutoSelectFirmware();
+                        
+                        // Step 5: Device Selection
+                        await this.stepDeviceSelection();
+                        
+                        // Step 6: Final version check
+                        await this.stepFinalVersionCheck();
+                        
+                        // Step 7: Flash Ready
+                        await this.stepFlashReady();
+                        
+                        // Step 8: Execute Flash Operation
+                        await this.stepExecuteFlash();
+                        
+                        // Step 9: Complete
+                        await this.stepComplete();
+                        
+                    } catch (error) {
+                        console.error('❌ Flow execution failed:', error);
+                        this.handleError(error);
+                    }
+                }
+                
+                // =============================================================================
+                // FLOW STEPS
+                // =============================================================================
+                
+                async stepPasswordPrompt() {
+                    this.currentStep = 'password';
+                    this.updateUI('password', 'Requesting administrator privileges...');
+                    
+                    try {
+                        const result = await window.electronAPI.requestAdminSetup();
+                        if (!result.success) {
+                            throw new Error(result.error || 'Administrator privileges required');
+                        }
+                        console.log('✅ Admin setup completed');
+                        await this.delay(1000);
+                    } catch (error) {
+                        throw new Error(`Admin setup failed: ${error.message}`);
+                    }
+                }
+                
+                async stepCheckUpdates() {
+                    this.currentStep = 'check-updates';
+                    this.updateUI('check-updates', 'Checking for firmware updates...');
+                    
+                    try {
+                        const updateCheck = await window.electronAPI.checkForUpdates();
+                        const localFirmware = await window.electronAPI.getAutoSelectedFirmware();
+                        
+                        this.needsDownload = updateCheck.hasUpdate || !localFirmware;
+                        
+                        if (this.needsDownload) {
+                            this.latestVersion = updateCheck.latest;
+                            console.log(`📥 Download needed: ${this.latestVersion.version}`);
+                        } else {
+                            this.firmwareInfo = localFirmware;
+                            console.log(`✅ Local firmware up to date: ${localFirmware.version}`);
+                        }
+                        
+                        await this.delay(1000);
+                    } catch (error) {
+                        throw new Error(`Update check failed: ${error.message}`);
+                    }
+                }
+                
+                // FIXED: Combined download and unpack step
+                async stepDownloadAndUnpack() {
+                    console.log('🔽 Starting download and unpack process...');
+                    
+                    // Step 1: Download with progress
+                    this.currentStep = 'download';
+                    this.updateUI('download', `Downloading firmware ${this.latestVersion.version}...`);
+                    this.showDownloadProgress();
+                    
+                    try {
+                        // Setup download progress tracking
+                        const progressHandler = (progress) => {
+                            this.updateDownloadProgress(progress.progress, 
+                                `${progress.speed} - ${window.electronAPI.formatFileSize(progress.downloadedSize)} of ${window.electronAPI.formatFileSize(progress.totalSize)}`);
+                        };
+                        
+                        window.electronAPI.onDownloadProgress(progressHandler);
+                        
+                        // Start the download (this will also trigger unpacking in backend)
+                        const downloadPromise = window.electronAPI.downloadFirmware(this.latestVersion.version);
+                        
+                        // Wait for download to reach 100%
+                        await new Promise((resolve) => {
+                            const checkProgress = (progress) => {
+                                if (progress.progress >= 100) {
+                                    console.log('📥 Download reached 100%!');
+                                    resolve();
+                                }
+                            };
+                            
+                            // Override the progress handler to detect 100%
+                            const combinedHandler = (progress) => {
+                                progressHandler(progress);
+                                checkProgress(progress);
+                            };
+                            
+                            window.electronAPI.removeDownloadProgressListener(progressHandler);
+                            window.electronAPI.onDownloadProgress(combinedHandler);
+                        });
+                        
+                        // Download is at 100%, show unpacking spinner
+                        this.updateDownloadProgress(100, 'Download completed!');
+                        await this.delay(800);
+                        
+                        // Step 2: Switch to unpacking spinner
+                        console.log('📦 Switching to unpacking mode...');
+                        this.hideDownloadProgress();
+                        this.showUnpackingSpinner();
+                        
+                        // Wait for the backend to finish (this will send firmwareRefreshed event)
+                        await this.waitForUnpackingComplete();
+                        
+                        // Step 3: Hide unpacking spinner
+                        this.hideUnpackingSpinner();
+                        
+                        // Cleanup
+                        window.electronAPI.removeDownloadProgressListener(progressHandler);
+                        
+                        console.log('✅ Download and unpack completed successfully');
+                        
+                    } catch (error) {
+                        this.hideDownloadProgress();
+                        this.hideUnpackingSpinner();
+                        throw new Error(`Download and unpack failed: ${error.message}`);
+                    }
+                }
+                
+                async stepAutoSelectFirmware() {
+                    this.currentStep = 'auto-select';
+                    this.updateUI('auto-select', 'Auto-selecting latest firmware...');
+                    
+                    try {
+                        const localVersions = await window.electronAPI.getLocalVersions();
+                        
+                        if (!localVersions || localVersions.length === 0) {
+                            throw new Error('No firmware found in RAW directory');
+                        }
+                        
+                        const latestFirmware = this.findLatestVersion(localVersions);
+                        
+                        if (!latestFirmware) {
+                            throw new Error('Could not determine latest firmware version');
+                        }
+                        
+                        this.firmwareInfo = latestFirmware;
+                        
+                        console.log(`✅ Auto-selected firmware: ${latestFirmware.version} (${latestFirmware.filename})`);
+                        
+                        this.updateUI('auto-select', `Selected: ${latestFirmware.version} - ${window.electronAPI.formatFileSize(latestFirmware.size)}`);
+                        
+                        await this.delay(1500);
+                        
+                    } catch (error) {
+                        throw new Error(`Auto-selection failed: ${error.message}`);
+                    }
+                }
+                
+                async stepDeviceSelection() {
+                    this.currentStep = 'device-selection';
+                    this.updateUI('device-selection', 'Please select target device...');
+                    this.showDeviceSelection();
+                    
+                    return new Promise((resolve, reject) => {
+                        this.deviceSelectionResolve = resolve;
+                        this.deviceSelectionReject = reject;
+                    });
+                }
+                
+                async stepFinalVersionCheck() {
+                    this.currentStep = 'final-check';
+                    this.updateUI('final-check', 'Performing final version check...');
+                    
+                    try {
+                        const updateCheck = await window.electronAPI.checkForUpdates();
+                        
+                        if (updateCheck.hasUpdate) {
+                            console.log('🔄 New version detected, restarting flow...');
+                            this.updateUI('final-check', 'New version detected! Restarting download process...');
+                            
+                            await this.delay(2000);
+                            this.needsDownload = true;
+                            this.latestVersion = updateCheck.latest;
+                            
+                            await this.stepDownloadAndUnpack();
+                            await this.stepAutoSelectFirmware();
+                            await this.stepDeviceSelection();
+                            
+                            return await this.stepFinalVersionCheck();
+                        }
+                        
+                        console.log('✅ Version check passed - firmware is up to date');
+                        await this.delay(1000);
+                        
+                    } catch (error) {
+                        throw new Error(`Final version check failed: ${error.message}`);
+                    }
+                }
+                
+                async stepFlashReady() {
+                    this.currentStep = 'flash-ready';
+                    this.showFlashReady();
+                    
+                    return new Promise((resolve, reject) => {
+                        this.flashReadyResolve = resolve;
+                        this.flashReadyReject = reject;
+                    });
+                }
+                
+                async stepExecuteFlash() {
+                    this.currentStep = 'flashing';
+                    this.updateUI('flashing', 'Flashing device - DO NOT DISCONNECT!');
+                    this.showFlashProgress();
+                    
+                    try {
+                        const progressHandler = (progress) => {
+                            this.updateFlashProgress(progress.progress, 
+                                progress.speed ? `Speed: ${progress.speed}` : 'Flashing...');
+                            
+                            if (progress.rawLine) {
+                                const rawOutput = document.getElementById('flash-raw-output');
+                                if (rawOutput) {
+                                    rawOutput.style.display = 'block';
+                                    rawOutput.textContent += progress.rawLine + '\n';
+                                    rawOutput.scrollTop = rawOutput.scrollHeight;
+                                }
+                            }
+                        };
+                        
+                        window.electronAPI.onFlashProgress(progressHandler);
+                        
+                        const flashResult = await window.electronAPI.startFlash(
+                            this.firmwareInfo.path, 
+                            this.selectedDevice.path
+                        );
+                        
+                        if (!flashResult.success) {
+                            throw new Error(flashResult.message || 'Flash operation failed');
+                        }
+                        
+                        this.updateFlashProgress(100, 'Flash completed!');
+                        
+                        window.electronAPI.removeFlashProgressListener(progressHandler);
+                        
+                        // Extend partition
+                        this.currentStep = 'extending';
+                        this.updateUI('extending', 'Extending partition...');
+                        
+                        const extendResult = await window.electronAPI.extendPartition(this.selectedDevice.path, 3);
+                        if (!extendResult.success) {
+                            console.warn('Partition extension failed:', extendResult.message);
+                        }
+                        
+                        // Log operation
+                        this.currentStep = 'logging';
+                        this.updateUI('logging', 'Logging operation...');
+                        
+                        this.flashResult = flashResult;
+                        
+                        console.log('✅ Flash operation completed successfully');
+                        await this.delay(1000);
+                        
+                    } catch (error) {
+                        this.hideFlashProgress();
+                        throw new Error(`Flash operation failed: ${error.message}`);
+                    }
+                }
+                
+                async stepComplete() {
+                    this.currentStep = 'complete';
+                    this.showCompletion();
+                }
+                
+                // =============================================================================
+                // UI HELPERS
+                // =============================================================================
+                
+                updateUI(step, message) {
+                    const statusIcon = document.getElementById('status-icon');
+                    const statusTitle = document.getElementById('status-title');
+                    const statusSubtitle = document.getElementById('status-subtitle');
+                    
+                    if (statusIcon) statusIcon.textContent = this.getStepIcon(step);
+                    if (statusTitle) statusTitle.textContent = this.steps[step] || step;
+                    if (statusSubtitle) statusSubtitle.textContent = message;
+                    
+                    this.showScreen('firmware-screen');
+                }
+                
+                showDownloadProgress() {
+                    document.getElementById('download-progress-container').style.display = 'block';
+                }
+                
+                hideDownloadProgress() {
+                    document.getElementById('download-progress-container').style.display = 'none';
+                }
+                
+                updateDownloadProgress(progress, text) {
+                    const progressBar = document.getElementById('download-progress-bar');
+                    const progressText = document.getElementById('download-progress-text');
+                    
+                    if (progressBar) {
+                        progressBar.style.width = `${progress}%`;
+                        progressBar.textContent = `${Math.round(progress)}%`;
+                    }
+                    
+                    if (progressText) {
+                        progressText.textContent = text;
+                    }
+                }
+                
+                showUnpackingSpinner() {
+                    this.currentStep = 'unpacking';
+                    this.updateUI('unpacking', 'Unpacking firmware...');
+                    document.getElementById('unpacking-container').style.display = 'block';
+                }
+                
+                hideUnpackingSpinner() {
+                    document.getElementById('unpacking-container').style.display = 'none';
+                }
+                
+                showFlashProgress() {
+                    document.getElementById('flash-progress-container').style.display = 'block';
+                }
+                
+                hideFlashProgress() {
+                    document.getElementById('flash-progress-container').style.display = 'none';
+                }
+                
+                updateFlashProgress(progress, text) {
+                    const progressBar = document.getElementById('flash-progress-bar');
+                    const progressText = document.getElementById('flash-progress-text');
+                    
+                    if (progressBar) {
+                        progressBar.style.width = `${progress}%`;
+                        progressBar.textContent = `${Math.round(progress)}%`;
+                    }
+                    
+                    if (progressText) {
+                        progressText.textContent = text;
+                    }
+                }
+                
+                showDeviceSelection() {
+                    this.showScreen('device-screen');
+                    this.refreshDevices();
+                }
+                
+                showFlashReady() {
+                    document.getElementById('summary-firmware').textContent = this.firmwareInfo.version;
+                    document.getElementById('summary-device').textContent = `${this.selectedDevice.path} - ${this.selectedDevice.model}`;
+                    
+                    this.showScreen('flash-ready-screen');
+                }
+                
+                showCompletion() {
+                    if (this.flashResult && this.flashResult.logEntry) {
+                        document.getElementById('completion-device').textContent = this.flashResult.logEntry.device || '-';
+                        document.getElementById('completion-serial').textContent = this.flashResult.logEntry.serialNumber || 'Unknown';
+                        document.getElementById('completion-firmware').textContent = this.flashResult.logEntry.firmware || '-';
+                        document.getElementById('completion-duration').textContent = window.electronAPI.formatDuration(this.flashResult.logEntry.duration || 0);
+                    }
+                    
+                    this.showScreen('flash-completion-screen');
+                }
+                
+                showScreen(screenId) {
+                    const screens = document.querySelectorAll('.screen');
+                    screens.forEach(screen => {
+                        screen.style.display = screen.id === screenId ? 'block' : 'none';
+                    });
+                }
+                
+                // =============================================================================
+                // DEVICE SELECTION
+                // =============================================================================
+                
+                async refreshDevices() {
+                    const button = document.getElementById('refresh-devices-button');
+                    const container = document.getElementById('device-list-container');
+                    
+                    if (button) button.disabled = true;
+                    if (container) container.innerHTML = '<p>Loading devices...</p>';
+                    
+                    try {
+                        const devices = await window.electronAPI.listDevices();
+                        
+                        if (devices.error) {
+                            if (container) container.innerHTML = '<p style="color: #dc3545;">Failed to load devices. Please try again.</p>';
+                            return;
+                        }
+                        
+                        this.renderDeviceList(devices);
+                    } catch (error) {
+                        console.error('Error loading devices:', error);
+                        if (container) container.innerHTML = '<p style="color: #dc3545;">Error loading devices. Please try again.</p>';
+                    } finally {
+                        if (button) button.disabled = false;
+                    }
+                }
+                
+                renderDeviceList(devices) {
+                    const container = document.getElementById('device-list-container');
+                    if (!container) return;
+                    
+                    if (!devices || devices.length === 0) {
+                        container.innerHTML = '<p>No compatible devices found. Please connect a device and refresh.</p>';
+                        return;
+                    }
+                    
+                    const ul = document.createElement('ul');
+                    
+                    devices.forEach(device => {
+                        const li = document.createElement('li');
+                        
+                        let labelText = `${device.path} - ${device.model} (${(device.size / (1024**3)).toFixed(2)} GB)`;
+                        
+                        if (device.isOS) {
+                            labelText += ' <strong style="color: #00FF44;">(OS Drive)</strong>';
+                            li.classList.add('disabled-item');
+                            li.title = 'This is your operating system drive and cannot be selected.';
+                        } else {
+                            li.addEventListener('click', () => this.selectDevice(device, li, ul));
+                        }
+                        
+                        li.innerHTML = labelText;
+                        ul.appendChild(li);
+                    });
+                    
+                    container.innerHTML = '';
+                    container.appendChild(ul);
+                }
+                
+                selectDevice(device, li, ul) {
+                    ul.querySelectorAll('li').forEach(item => item.classList.remove('selected-item'));
+                    li.classList.add('selected-item');
+                    
+                    document.getElementById('selected-device-info-text').textContent = `${device.path} - ${device.model}`;
+                    
+                    this.selectedDevice = device;
+                    console.log('✅ Device selected:', device.path);
+                    
+                    setTimeout(() => {
+                        if (this.deviceSelectionResolve) {
+                            this.deviceSelectionResolve();
+                        }
+                    }, 500);
+                }
+                
+                // =============================================================================
+                // HELPERS
+                // =============================================================================
+                
+                findLatestVersion(versions) {
+                    if (!versions || versions.length === 0) return null;
+                    
+                    const sorted = versions.sort((a, b) => {
+                        const aVersion = a.version.replace(/^v/, '').split('.').map(Number);
+                        const bVersion = b.version.replace(/^v/, '').split('.').map(Number);
+                        
+                        for (let i = 0; i < Math.max(aVersion.length, bVersion.length); i++) {
+                            const aNum = aVersion[i] || 0;
+                            const bNum = bVersion[i] || 0;
+                            
+                            if (aNum > bNum) return -1;
+                            if (aNum < bNum) return 1;
+                        }
+                        return 0;
+                    });
+                    
+                    return sorted[0];
+                }
+                
+                // FIXED: Wait for unpacking to complete
+                async waitForUnpackingComplete() {
+                    return new Promise((resolve) => {
+                        const handler = (data) => {
+                            console.log('🔄 Unpacking complete signal received:', data);
+                            window.electronAPI.removeFirmwareRefreshListener(handler);
+                            resolve(data);
+                        };
+                        
+                        window.electronAPI.onFirmwareRefreshed(handler);
+                        
+                        // Also add a timeout as backup
+                        setTimeout(() => {
+                            console.log('⏰ Unpacking timeout, assuming completion...');
+                            window.electronAPI.removeFirmwareRefreshListener(handler);
+                            resolve({ timeout: true });
+                        }, 15000); // 15 second timeout
+                    });
+                }
+                
+                getStepIcon(step) {
+                    const icons = {
+                        'init': '🚀',
+                        'password': '🔐',
+                        'check-updates': '🔍',
+                        'download': '📥',
+                        'unpacking': '📦',
+                        'auto-select': '🎯',
+                        'device-selection': '💾',
+                        'final-check': '✅',
+                        'flash-ready': '⚡',
+                        'flashing': '🔥',
+                        'extending': '📏',
+                        'logging': '📝',
+                        'complete': '🎉'
+                    };
+                    
+                    return icons[step] || '⚙️';
+                }
+                
+                delay(ms) {
+                    return new Promise(resolve => setTimeout(resolve, ms));
+                }
+                
+                handleError(error) {
+                    console.error('❌ Application Error:', error);
+                    this.updateUI('error', `Error: ${error.message}`);
+                    
+                    this.showGlobalMessage(error.message, 'error');
+                    
+                    setTimeout(() => {
+                        if (confirm('An error occurred. Would you like to restart the application?')) {
+                            location.reload();
+                        }
+                    }, 3000);
+                }
+                
+                showGlobalMessage(message, type = 'info') {
+                    const container = document.getElementById('global-message-container');
+                    if (!container) return;
+                    
+                    container.textContent = message;
+                    container.className = `message-container ${type}`;
+                    container.style.display = 'block';
+                    
+                    if (type !== 'error') {
+                        setTimeout(() => {
+                            container.style.display = 'none';
+                        }, 5000);
+                    }
+                }
+            }
+            
+            // =============================================================================
+            // EVENT LISTENERS
+            // =============================================================================
+            
+            const app = new EnhancedFlashApp();
+            
+            document.getElementById('refresh-devices-button')?.addEventListener('click', () => {
+                app.refreshDevices();
+            });
+            
+            document.getElementById('start-flash-button')?.addEventListener('click', () => {
+                if (app.flashReadyResolve) {
+                    app.flashReadyResolve();
+                }
+            });
+            
+            document.getElementById('flash-another-btn')?.addEventListener('click', () => {
+                location.reload();
+            });
+            
+            document.getElementById('return-home-btn')?.addEventListener('click', () => {
+                if (confirm('Are you sure you want to exit the application?')) {
+                    window.close();
+                }
+            });
+            
+            document.getElementById('back-to-firmware-btn')?.addEventListener('click', () => {
+                app.showScreen('firmware-screen');
+            });
+            
+            document.getElementById('back-to-devices-btn')?.addEventListener('click', () => {
+                app.showScreen('device-screen');
+            });
+            
+            window.enhancedFlashApp = app;
         });
     </script>
 </body>

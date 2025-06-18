@@ -2,15 +2,10 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('electronAPI', {
-    // === LEGACY FILE SELECTION (COMMENTED OUT) ===
-    // These are kept but commented out as they're no longer used in the automated flow
-    /*
-    // LEGACY: Manual file selection - commented out for new automated flow
-    selectImage: (options) => ipcRenderer.invoke('dialog:selectImage', options),
-    validateDraggedFile: (fileName) => ipcRenderer.invoke('file:validateDraggedFile', fileName),
-    */
+    // === ADMIN SETUP ===
+    requestAdminSetup: () => ipcRenderer.invoke('admin:setup'),
     
-    // === ACTIVE FILE OPERATIONS ===
+    // === FILE OPERATIONS ===
     // Still needed for firmware file info and validation
     getFileInfo: (filePath) => ipcRenderer.invoke('file:getInfo', filePath),
     
@@ -31,9 +26,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     showErrorDialog: (title, content) => ipcRenderer.send('dialog:showError', title, content),
     showSuccessDialog: (title, content) => ipcRenderer.send('dialog:showSuccess', title, content),
     
-    // === NEW AUTOMATED UPDATE MANAGEMENT ===
+    // === UPDATE MANAGEMENT ===
     
-    // Update checking and polling
+    // Update checking
     checkForUpdates: () => ipcRenderer.invoke('update:check'),
     onNewVersionAvailable: (callback) => ipcRenderer.on('update:newVersionAvailable', (_event, value) => callback(value)),
     removeNewVersionListener: (callback) => ipcRenderer.removeListener('update:newVersionAvailable', callback),
@@ -47,8 +42,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
     onDownloadProgress: (callback) => ipcRenderer.on('update:downloadProgress', (_event, value) => callback(value)),
     removeDownloadProgressListener: (callback) => ipcRenderer.removeListener('update:downloadProgress', callback),
     
+    // Firmware refresh event
+    onFirmwareRefreshed: (callback) => ipcRenderer.on('update:firmwareRefreshed', (_event, value) => callback(value)),
+    removeFirmwareRefreshListener: (callback) => ipcRenderer.removeListener('update:firmwareRefreshed', callback),
+    
     // Log management
     exportFlashLog: (format = 'csv') => ipcRenderer.invoke('update:exportLog', format),
+    
+    // Storage management
+    validateStorage: () => ipcRenderer.invoke('update:validateStorage'),
+    cleanupStorage: () => ipcRenderer.invoke('update:cleanupStorage'),
     
     // === UTILITY FUNCTIONS ===
     

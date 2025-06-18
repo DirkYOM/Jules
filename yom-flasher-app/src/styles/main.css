@@ -192,6 +192,150 @@ p {
     opacity: 0.8;
 }
 
+/* Firmware Status Styles */
+.firmware-status {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(0, 255, 68, 0.2);
+    border-radius: 12px;
+    padding: 24px;
+    margin-bottom: 32px;
+    transition: all 0.3s ease;
+}
+
+.status-icon {
+    font-size: 48px;
+    min-width: 48px;
+}
+
+.status-content {
+    flex: 1;
+}
+
+.status-title {
+    font-family: 'Public Sans', sans-serif;
+    font-weight: 500;
+    font-size: 20px;
+    color: #FFFFFF;
+    margin-bottom: 8px;
+}
+
+.status-subtitle {
+    font-family: Georgia, serif;
+    font-size: 16px;
+    color: #F0F0F0;
+    opacity: 0.8;
+}
+
+/* Screen Management */
+.screen {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+/* Progress Sections */
+.progress-section {
+    margin-bottom: 20px;
+}
+
+.progress-label {
+    font-family: 'Public Sans', sans-serif;
+    font-weight: 500;
+    font-size: 16px;
+    color: #FFFFFF;
+    margin-bottom: 12px;
+    text-align: center;
+}
+
+/* Action Button Container */
+.action-button-container {
+    margin-top: 32px;
+    text-align: center;
+}
+
+/* Back Button */
+.back-button {
+    background: rgba(255, 255, 255, 0.1);
+    color: #F0F0F0;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 8px;
+    padding: 8px 16px;
+    font-size: 14px;
+    margin-bottom: 20px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.back-button:hover {
+    background: rgba(255, 255, 255, 0.15);
+    border-color: rgba(255, 255, 255, 0.3);
+}
+
+/* Update Check Status */
+.update-check-status {
+    margin-top: 20px;
+    padding: 16px;
+    background: rgba(33, 150, 243, 0.1);
+    border: 1px solid rgba(33, 150, 243, 0.3);
+    border-radius: 8px;
+    animation: pulse-info 2s infinite;
+}
+
+@keyframes pulse-info {
+    0%, 100% {
+        border-color: rgba(33, 150, 243, 0.3);
+        background: rgba(33, 150, 243, 0.1);
+    }
+    50% {
+        border-color: rgba(33, 150, 243, 0.5);
+        background: rgba(33, 150, 243, 0.15);
+    }
+}
+
+.update-check-content {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.update-check-icon {
+    font-size: 20px;
+}
+
+.update-check-text {
+    font-family: 'Public Sans', sans-serif;
+    font-weight: 500;
+    color: #2196F3;
+}
+
+/* Flash Summary */
+.flash-summary {
+    background: rgba(0, 255, 68, 0.05);
+    border: 1px solid rgba(0, 255, 68, 0.2);
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 32px;
+    text-align: left;
+}
+
+.summary-item {
+    margin-bottom: 12px;
+    font-family: Georgia, serif;
+    color: #F0F0F0;
+}
+
+.summary-item:last-child {
+    margin-bottom: 0;
+}
+
+.summary-item strong {
+    color: #FFFFFF;
+}
+
 /* Buttons */
 button {
     font-family: 'Public Sans', sans-serif; /* Primary font */
@@ -226,6 +370,13 @@ button:disabled {
 .flash-button {
     font-size: 18px;
     padding: 20px 48px;
+}
+
+.flash-button:disabled {
+    background: linear-gradient(135deg, #666666 0%, #555555 100%);
+    color: #999999;
+    cursor: not-allowed;
+    opacity: 0.6;
 }
 
 .cancel-button {
@@ -402,6 +553,12 @@ section {
     color: #2196F3;
 }
 
+.message-container.warning {
+    background: rgba(255, 193, 7, 0.1);
+    border: 1px solid rgba(255, 193, 7, 0.3);
+    color: #ffc107;
+}
+
 /* Responsive Design */
 @media (max-width: 768px) {
     #app-content {
@@ -430,6 +587,19 @@ section {
     
     .flash-button {
         padding: 16px 32px;
+        font-size: 16px;
+    }
+    
+    .download-button {
+        padding: 10px 20px;
+        font-size: 14px;
+    }
+    
+    .update-required {
+        padding: 20px 16px;
+    }
+    
+    .update-message {
         font-size: 16px;
     }
 }
