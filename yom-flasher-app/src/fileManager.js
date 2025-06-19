@@ -16,6 +16,8 @@ class FileManager {
             maxStoredVersions: config.maxStoredVersions || 3,
             downloadTimeout: config.downloadTimeout || 3600 * 1000,
             tempFileMaxAge: config.tempFileMaxAge || 24 * 60 * 60 * 1000, // 24 hours
+            silentApiLogging: config.silentApiLogging !== false, // Default enabled
+            stationId: config.stationId || 'YOM-FLASH-001',
             ...config
         };
         
@@ -147,12 +149,16 @@ class FileManager {
             for (const file of files) {
                 // Look for .raw files in RAW folder (the final extracted files)
                 if (file.endsWith('.raw')) {
-                    // Look for the specific naming pattern: yom-node-os-P1-disk.raw
-                    if (file === 'yom-node-os-P1-disk.raw') {
+                    // Look for YOM firmware pattern: yom-node-os-P*
+                    if (file.includes('yom-node-os-P') || file === 'yom-node-os-P1-disk.raw') {
                         const filePath = path.join(paths.raw, file);
                         const stats = await fs.stat(filePath);
+                        
+                        // Extract version from filename
+                        const version = this.extractVersionFromFilename(file);
+                        
                         versions.push({
-                            version: 'v1.2.3', // Latest version (could be dynamic based on API)
+                            version: version,
                             filename: file,
                             size: stats.size,
                             modified: stats.mtime,
@@ -168,6 +174,45 @@ class FileManager {
             console.error('Failed to get local versions:', error);
             return [];
         }
+    }
+
+    /**
+     * Extract version from YOM firmware filename
+     */
+    extractVersionFromFilename(filename) {
+        // YOM firmware patterns
+        const yomPatterns = [
+            /yom-node-os-P(\d+)/,                    // P1, P2, P10, etc.
+            /yom-node-os-P_(\d+)/,                   // P_01, P_02, etc.
+            /yom-node-os-P_(\d+\.\d+)/,             // P_0.1, P_1.5, etc.
+            /yom-node-os-P_(\d+\.\d+\.\d+)/,        // P_0.1.1, P_1.2.3, etc.
+            /yom-node-os-P(\d+\.\d+)/,              // P1.0, P2.1, etc.
+            /yom-node-os-P(\d+\.\d+\.\d+)/          // P1.0.0, P1.2.3, etc.
+        ];
+        
+        // Try YOM patterns
+        for (const pattern of yomPatterns) {
+            const match = filename.match(pattern);
+            if (match && match[1]) {
+                return `P${match[1]}`;
+            }
+        }
+        
+        // Fallback patterns
+        const fallbackPatterns = [
+            /v(\d+\.\d+\.\d+)/,                      // v1.2.3
+            /(\d+\.\d+\.\d+)/                        // 1.2.3
+        ];
+        
+        for (const pattern of fallbackPatterns) {
+            const match = filename.match(pattern);
+            if (match && match[1]) {
+                return `v${match[1]}`;
+            }
+        }
+        
+        // Ultimate fallback
+        return filename.replace(/\.(raw|img)$/i, '');
     }
 
     /**
@@ -266,7 +311,7 @@ class FileManager {
             console.log(`📤 Extracting ${rawFileName} to RAW folder...`);
             await execAsync('unzip', ['-j', zipPath, rawFileName, '-d', rawDir]);
             
-            // The extracted file will have its original name, rename to consistent name
+            // The extracted file will have its original name, rename to consistent name if needed
             const extractedOriginalPath = path.join(rawDir, rawFileName);
             
             // Check if the extracted file exists
@@ -276,9 +321,9 @@ class FileManager {
                 throw new Error(`Extracted file not found: ${extractedOriginalPath}`);
             }
             
-            // Rename to consistent naming: yom-node-os-P1-disk.raw
+            // If the original name is different from target, rename
             if (extractedOriginalPath !== targetRawPath) {
-                console.log(`📝 Renaming to consistent name: ${path.basename(targetRawPath)}`);
+                console.log(`📝 Renaming to: ${path.basename(targetRawPath)}`);
                 await fs.rename(extractedOriginalPath, targetRawPath);
             }
             
@@ -331,7 +376,7 @@ class FileManager {
             }
             
             const tempZipPath = path.join(paths.temp, downloadInfo.filename);
-            const finalRawPath = path.join(paths.raw, 'yom-node-os-P1-disk.raw');
+            const finalRawPath = path.join(paths.raw, 'yom-node-os-P1-disk.raw'); // Standard YOM naming
             
             console.log(`📥 Downloading ZIP firmware to temp folder`);
             
@@ -438,13 +483,13 @@ class FileManager {
     // =============================================================================
 
     /**
-     * Manage storage limit by keeping only latest N versions in RAW folder (ZIP files)
+     * Manage storage limit by keeping only latest N versions in RAW folder
      */
     async manageStorageLimit() {
         const paths = await this.initializePaths();
         
         try {
-            const firmwareFiles = await this.getLocalVersions(); // Gets .zip files from RAW
+            const firmwareFiles = await this.getLocalVersions();
             
             // Keep only the latest N versions in RAW folder
             if (firmwareFiles.length > this.config.maxStoredVersions) {
@@ -453,14 +498,14 @@ class FileManager {
                 for (const firmware of toDelete) {
                     try {
                         await fs.unlink(firmware.path);
-                        console.log(`🗑️  Deleted old ZIP firmware from RAW: ${firmware.version} (${this.formatFileSize(firmware.size)} freed)`);
+                        console.log(`🗑️  Deleted old firmware from RAW: ${firmware.version} (${this.formatFileSize(firmware.size)} freed)`);
                     } catch (error) {
                         console.error(`Failed to delete ${firmware.version}:`, error);
                     }
                 }
             }
             
-            // Also cleanup any leftover temp files and old extracted files
+            // Also cleanup any leftover temp files
             await this.cleanupTempFiles();
             
         } catch (error) {
@@ -494,8 +539,143 @@ class FileManager {
     }
 
     // =============================================================================
-    // ENHANCED LOGGING SYSTEM WITH IMPROVED SERIAL NUMBER PARSING
+    // SILENT API LOGGING SYSTEM
     // =============================================================================
+
+    /**
+     * Log flash operation with SILENT API logging
+     */
+    async logFlashOperationWithSerial(devicePath, firmwareVersion, status, startTime, endTime, additionalInfo = {}) {
+        try {
+            const paths = await this.initializePaths();
+            
+            // Get device serial number with enhanced detection
+            const deviceSerial = await this.getDeviceSerial(devicePath);
+            
+            // Calculate duration
+            const duration = endTime ? Math.round((endTime - startTime) / 1000) : 0;
+            
+            // Create log entry
+            const logEntry = {
+                timestamp: new Date().toISOString(),
+                firmware: firmwareVersion, // e.g., "yom-node-os-P1"
+                serialNumber: deviceSerial,
+                status, // 'success' or 'failed'
+                duration,
+                device: devicePath,
+                baseDevice: this.getBaseDevicePath(devicePath),
+                stationId: this.config.stationId,
+                ...additionalInfo
+            };
+            
+            // 1. Always log to local CSV (backup/offline capability)
+            await this.logToLocalCSV(logEntry, paths);
+            
+            // 2. Silent API logging (fire and forget)
+            if (this.config.silentApiLogging) {
+                // Don't await - fire and forget
+                this.sendToApiSilently(logEntry).catch(error => {
+                    // Silent failure - just log to console, don't interrupt main flow
+                    console.log(`API log failed (silent): ${error.message}`);
+                });
+            }
+            
+            console.log(`📝 Flash operation logged: ${firmwareVersion} -> ${deviceSerial} (${status})`);
+            return logEntry;
+            
+        } catch (error) {
+            console.error('Failed to log flash operation:', error);
+            throw error;
+        }
+    }
+
+    /**
+     * Log to local CSV file (backup)
+     */
+    async logToLocalCSV(logEntry, paths) {
+        const logPath = path.join(paths.logs, 'flash_operations.csv');
+        
+        // Check if CSV file exists and create header if needed
+        try {
+            await fs.access(logPath);
+        } catch (error) {
+            // File doesn't exist, create with header
+            const header = 'timestamp,firmware,serial,status\n';
+            await fs.writeFile(logPath, header);
+        }
+        
+        // Simple CSV format: timestamp,firmware,serial,status
+        const csvLine = [
+            logEntry.timestamp,
+            logEntry.firmware,
+            logEntry.serialNumber,
+            logEntry.status
+        ].join(',') + '\n';
+        
+        await fs.appendFile(logPath, csvLine);
+    }
+
+    /**
+     * Send to API silently (fire and forget)
+     */
+    async sendToApiSilently(logEntry) {
+        try {
+            const apiUrl = `${this.config.apiBaseUrl}/api/flash-log`;
+            const isHttps = apiUrl.startsWith('https:');
+            const requestModule = isHttps ? https : http;
+            
+            const payload = {
+                timestamp: logEntry.timestamp,
+                firmware: logEntry.firmware,
+                serialNumber: logEntry.serialNumber,
+                status: logEntry.status,
+                stationId: logEntry.stationId,
+                duration: logEntry.duration,
+                device: logEntry.device
+            };
+            
+            const postData = JSON.stringify(payload);
+            
+            return new Promise((resolve, reject) => {
+                const options = {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Content-Length': Buffer.byteLength(postData),
+                        'User-Agent': 'YOM-Flash-Tool/1.0.0'
+                    }
+                };
+                
+                const request = requestModule.request(apiUrl, options, (response) => {
+                    // Consume response data to prevent memory leaks
+                    response.on('data', () => {});
+                    response.on('end', () => {
+                        if (response.statusCode >= 200 && response.statusCode < 300) {
+                            resolve();
+                        } else {
+                            reject(new Error(`HTTP ${response.statusCode}`));
+                        }
+                    });
+                });
+                
+                request.on('error', (error) => {
+                    reject(error);
+                });
+                
+                // Short timeout for silent logging (don't block main operation)
+                request.setTimeout(5000, () => {
+                    request.destroy();
+                    reject(new Error('Timeout'));
+                });
+                
+                request.write(postData);
+                request.end();
+            });
+            
+        } catch (error) {
+            throw error;
+        }
+    }
 
     /**
      * Enhanced device serial number extraction using smartctl with better error handling
@@ -708,60 +888,7 @@ class FileManager {
     }
 
     /**
-     * Log flash operation with enhanced serial number detection
-     */
-    async logFlashOperationWithSerial(devicePath, firmwareVersion, status, startTime, endTime, additionalInfo = {}) {
-        try {
-            const paths = await this.initializePaths();
-            
-            // Get device serial number with enhanced detection
-            const deviceSerial = await this.getDeviceSerial(devicePath);
-            
-            // Calculate duration
-            const duration = endTime ? Math.round((endTime - startTime) / 1000) : 0;
-            
-            // Create log entry in format: {TimeStamp} {Name_version} {serial number}
-            const logEntry = {
-                timestamp: new Date().toISOString(),
-                firmware: firmwareVersion, // e.g., "FlashingApp_v1.2.3"
-                serialNumber: deviceSerial,
-                status,
-                duration,
-                device: devicePath,
-                baseDevice: this.getBaseDevicePath(devicePath),
-                ...additionalInfo
-            };
-            
-            const logPath = path.join(paths.logs, 'flash_operations.csv');
-            
-            // Check if CSV file exists and create header if needed
-            try {
-                await fs.access(logPath);
-            } catch (error) {
-                // File doesn't exist, create with header
-                const header = 'timestamp,firmware,serial\n';
-                await fs.writeFile(logPath, header);
-            }
-            
-            // Simple CSV format: timestamp,firmware,serial
-            const csvLine = [
-                logEntry.timestamp,
-                logEntry.firmware,
-                logEntry.serialNumber
-            ].join(',') + '\n';
-            
-            await fs.appendFile(logPath, csvLine);
-            console.log(`📝 Flash operation logged: ${firmwareVersion} -> ${deviceSerial}`);
-            
-            return logEntry;
-        } catch (error) {
-            console.error('Failed to log flash operation:', error);
-            throw error;
-        }
-    }
-
-    /**
-     * Export flash logs
+     * Export flash logs (simplified - just for local backup)
      */
     async exportFlashLog(format = 'csv') {
         try {
@@ -770,11 +897,9 @@ class FileManager {
             
             const logData = await fs.readFile(logPath, 'utf-8');
             
-            if (format === 'csv') {
-                return logData;
-            } else if (format === 'json') {
+            if (format === 'json') {
                 const lines = logData.trim().split('\n');
-                const headers = lines[0].split(','); // timestamp,firmware,serial
+                const headers = lines[0].split(','); // timestamp,firmware,serial,status
                 const entries = lines.slice(1).map(line => {
                     const values = line.split(',');
                     const entry = {};
@@ -787,6 +912,7 @@ class FileManager {
             }
             
             return logData;
+            
         } catch (error) {
             console.error('Failed to export log:', error);
             throw error;
@@ -823,8 +949,8 @@ class FileManager {
      * Compare version strings
      */
     compareVersions(a, b) {
-        const aVersion = a.replace(/^v/, '').split('.').map(Number);
-        const bVersion = b.replace(/^v/, '').split('.').map(Number);
+        const aVersion = a.replace(/^v/, '').replace(/^P/, '').split('.').map(Number);
+        const bVersion = b.replace(/^v/, '').replace(/^P/, '').split('.').map(Number);
         
         for (let i = 0; i < Math.max(aVersion.length, bVersion.length); i++) {
             const aNum = aVersion[i] || 0;

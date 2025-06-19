@@ -11,7 +11,7 @@ const PORT = 3001;
 app.use(cors());
 app.use(express.json());
 
-// Real ZIP file configuration - ONLY look for existing ZIP
+// Real YOM ZIP file configuration - YOM naming convention
 const REAL_FIRMWARE_ZIP = path.join(os.homedir(), 'Documents', 'yom-node-os-P1-disk.zip');
 
 // Check if real ZIP file exists and get its size
@@ -23,41 +23,41 @@ try {
     const stats = fs.statSync(REAL_FIRMWARE_ZIP);
     realZipExists = true;
     realZipSize = stats.size;
-    console.log(`✅ Real firmware ZIP found: ${REAL_FIRMWARE_ZIP}`);
+    console.log(`✅ Real YOM firmware ZIP found: ${REAL_FIRMWARE_ZIP}`);
     console.log(`📦 ZIP file size: ${(realZipSize / (1024**3)).toFixed(2)} GB`);
     
 } catch (error) {
-    console.log(`⚠️  Real firmware ZIP not found at: ${REAL_FIRMWARE_ZIP}`);
-    console.log('📝 Will use mock data instead');
+    console.log(`⚠️  Real YOM firmware ZIP not found at: ${REAL_FIRMWARE_ZIP}`);
+    console.log('📝 Will use valid mock data with YOM naming instead');
 }
 
-// Enhanced firmware versions with ZIP-ONLY support
+// YOM Firmware versions with proper naming convention
 const FIRMWARE_VERSIONS = [
     {
-        version: "v1.2.1",
+        version: "P0.9",
         release_date: "2024-05-15",
-        file_size: 25769803776, // ~24GB (mock - this would be zip size)
+        file_size: 104857600, // 100MB mock
         checksum: "sha256:abc123def456",
-        description: "Stable release with performance improvements",
-        filename: "FlashingApp_v1.2.1.zip", // Always ZIP
+        description: "Beta release for testing",
+        filename: "yom-node-os-P0.9-disk.zip",
         type: "mock"
     },
     {
-        version: "v1.2.2", 
+        version: "P0.95", 
         release_date: "2024-06-01",
-        file_size: 25869803776,
+        file_size: 104857600, // 100MB mock
         checksum: "sha256:def456ghi789", 
-        description: "Security updates and bug fixes",
-        filename: "FlashingApp_v1.2.2.zip", // Always ZIP
+        description: "Release candidate with bug fixes",
+        filename: "yom-node-os-P0.95-disk.zip",
         type: "mock"
     },
     {
-        version: "v1.2.3",
+        version: "P1",
         release_date: "2024-06-15", 
-        file_size: realZipExists ? realZipSize : 25969803776, // Use actual zip size
+        file_size: realZipExists ? realZipSize : 104857600, // Use actual zip size or 100MB mock
         checksum: realZipExists ? realZipChecksum : "sha256:ghi789jkl012",
-        description: realZipExists ? "Latest firmware with real ZIP data from yom-node-os-P1-disk.zip" : "Latest firmware with new features",
-        filename: "FlashingApp_v1.2.3.zip", // Always ZIP
+        description: realZipExists ? "Production release P1 with real firmware data" : "Production release P1 with valid mock firmware",
+        filename: "yom-node-os-P1-disk.zip",
         type: realZipExists ? "real" : "mock",
         realZipPath: realZipExists ? REAL_FIRMWARE_ZIP : null
     }
@@ -105,12 +105,12 @@ app.post('/api/flash-images/download', (req, res) => {
         file_size: firmware.file_size,
         checksum: firmware.checksum,
         filename: firmware.filename,
-        type: 'zip', // Always ZIP
-        format: 'zip' // Explicit format indicator
+        type: 'zip',
+        format: 'zip'
     });
 });
 
-// Enhanced file download - serves ZIP files only
+// FIXED: Enhanced file download - serves valid ZIP files only
 app.get('/api/flash-images/file/:version', (req, res) => {
     const { version } = req.params;
     console.log('API: ZIP file download requested for version:', version);
@@ -140,7 +140,9 @@ app.get('/api/flash-images/file/:version', (req, res) => {
         
         fileStream.on('error', (error) => {
             console.error('Error streaming real ZIP file:', error);
-            res.status(500).json({ error: 'Failed to stream ZIP file' });
+            if (!res.headersSent) {
+                res.status(500).json({ error: 'Failed to stream ZIP file' });
+            }
         });
         
         fileStream.on('open', () => {
@@ -166,28 +168,60 @@ app.get('/api/flash-images/file/:version', (req, res) => {
         fileStream.pipe(res);
         
     } else {
-        // Serve mock ZIP data
-        console.log(`API: Creating mock ZIP file for ${firmware.filename}`);
+        // FIXED: Create a proper valid mock ZIP file
+        console.log(`API: Creating valid mock ZIP file for ${firmware.filename}`);
         
-        const zip = new AdmZip();
-        
-        // Create mock firmware content (smaller for testing)
-        const mockRawSize = 10 * 1024 * 1024; // 10MB mock raw file
-        const mockRawData = Buffer.alloc(mockRawSize, 0);
-        
-        // Add mock raw file to zip with correct naming
-        const rawFileName = firmware.filename.replace('.zip', '.raw');
-        zip.addFile(rawFileName, mockRawData, 'Mock firmware raw image file');
-        
-        const zipBuffer = zip.toBuffer();
-        
-        res.setHeader('Content-Length', zipBuffer.length);
-        console.log(`📦 Mock ZIP file created: ${(zipBuffer.length / (1024**2)).toFixed(1)} MB`);
-        console.log(`📄 Contains: ${rawFileName} (${(mockRawSize / (1024**2)).toFixed(1)} MB raw)`);
-        
-        // Stream the zip buffer
-        res.end(zipBuffer);
-        console.log('✅ Finished streaming mock ZIP file');
+        try {
+            const zip = new AdmZip();
+            
+            // Create realistic mock firmware content (100MB for testing)
+            const mockRawSize = 100 * 1024 * 1024; // 100MB
+            console.log(`📦 Creating ${(mockRawSize / (1024**2)).toFixed(1)} MB mock firmware...`);
+            
+            // Create mock raw data with realistic pattern
+            const mockRawData = Buffer.alloc(mockRawSize);
+            
+            // Fill with repeating pattern to simulate firmware structure
+            const pattern = Buffer.from('YOM_FIRMWARE_DATA_BLOCK_');
+            for (let i = 0; i < mockRawSize; i += pattern.length) {
+                const remainingBytes = Math.min(pattern.length, mockRawSize - i);
+                pattern.copy(mockRawData, i, 0, remainingBytes);
+            }
+            
+            // Add some variation to make it more realistic
+            for (let i = 0; i < mockRawSize; i += 4096) {
+                const blockNum = Math.floor(i / 4096);
+                const blockHeader = Buffer.from(`BLOCK_${blockNum.toString().padStart(8, '0')}_`);
+                blockHeader.copy(mockRawData, i, 0, Math.min(blockHeader.length, mockRawSize - i));
+            }
+            
+            // Add the raw file to zip with YOM naming convention
+            zip.addFile('yom-node-os-P1-disk.raw', mockRawData, 'YOM firmware image file for P1 version');
+            
+            // Generate the ZIP buffer
+            const zipBuffer = zip.toBuffer();
+            
+            if (!zipBuffer || zipBuffer.length === 0) {
+                throw new Error('Failed to generate ZIP buffer');
+            }
+            
+            res.setHeader('Content-Length', zipBuffer.length);
+            console.log(`📦 Valid mock ZIP created: ${(zipBuffer.length / (1024**2)).toFixed(1)} MB`);
+            console.log(`📄 Contains: yom-node-os-P1-disk.raw (${(mockRawSize / (1024**2)).toFixed(1)} MB raw data)`);
+            
+            // Send the ZIP buffer
+            res.send(zipBuffer);
+            console.log('✅ Mock ZIP file streamed successfully');
+            
+        } catch (zipError) {
+            console.error('❌ Failed to create mock ZIP:', zipError);
+            if (!res.headersSent) {
+                res.status(500).json({ 
+                    error: 'Failed to create ZIP file',
+                    details: zipError.message 
+                });
+            }
+        }
     }
 });
 
@@ -239,29 +273,86 @@ app.get('/api/test-real-file', (req, res) => {
     }
 });
 
+// SILENT API LOGGING ENDPOINT
+app.post('/api/flash-log', (req, res) => {
+    try {
+        const { timestamp, firmware, serialNumber, status, stationId, duration, device } = req.body;
+        
+        // Validate required fields
+        if (!timestamp || !firmware || !serialNumber || !status) {
+            return res.status(400).json({
+                success: false,
+                error: 'Missing required fields',
+                details: 'timestamp, firmware, serialNumber, and status are required'
+            });
+        }
+        
+        // Validate status value
+        if (!['success', 'failed'].includes(status)) {
+            return res.status(400).json({
+                success: false,
+                error: 'Invalid status value',
+                details: 'status must be either "success" or "failed"'
+            });
+        }
+        
+        // Create log entry
+        const logEntry = {
+            id: `log_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+            timestamp,
+            firmware,
+            serialNumber,
+            status,
+            stationId: stationId || 'unknown',
+            duration: duration || 0,
+            device: device || 'unknown',
+            receivedAt: new Date().toISOString()
+        };
+        
+        // Log to console (in production, you'd save to database)
+        console.log(`📝 FLASH LOG: ${status.toUpperCase()} - ${firmware} → ${serialNumber} (${stationId}) [${duration}s]`);
+        
+        res.json({
+            success: true,
+            message: 'Flash operation logged successfully',
+            logId: logEntry.id,
+            timestamp: logEntry.receivedAt
+        });
+        
+    } catch (error) {
+        console.error('Flash log error:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Internal server error',
+            details: error.message
+        });
+    }
+});
+
 app.listen(PORT, () => {
     console.log(`\n🚀 YOM Flash Tool API Server running on http://localhost:${PORT}`);
     console.log(`📋 Health check: http://localhost:${PORT}/api/health`);
     console.log(`⚡ Latest version: http://localhost:${PORT}/api/flash-images/latest`);
     console.log(`🧪 Test real file: http://localhost:${PORT}/api/test-real-file`);
+    console.log(`📝 Flash logging: http://localhost:${PORT}/api/flash-log`);
     
     console.log(`\n📦 ZIP-ONLY MODE ENABLED`);
-    console.log(`✅ All firmware served as ZIP files only`);
+    console.log(`✅ All firmware served as valid ZIP files`);
     
     if (realZipExists) {
-        console.log(`\n✅ Real firmware ZIP detected:`);
-        console.log(`   📁 ZIP file: ${REAL_FIRMWARE_ZIP}`);
+        console.log(`\n✅ Real YOM firmware ZIP detected:`);
+        console.log(`   📁 YOM ZIP file: ${REAL_FIRMWARE_ZIP}`);
         console.log(`   📦 ZIP size: ${(realZipSize / (1024**3)).toFixed(2)} GB`);
-        console.log(`   🎯 Will be served as v1.2.3 ZIP file`);
+        console.log(`   🎯 Will be served as P1 firmware ZIP file`);
     } else {
-        console.log(`\n⚠️  Real firmware ZIP not found:`);
+        console.log(`\n⚠️  Real YOM firmware ZIP not found:`);
         console.log(`   📁 Expected: ${REAL_FIRMWARE_ZIP}`);
-        console.log(`   💡 Using mock ZIP data for all versions`);
+        console.log(`   💡 Using valid mock YOM ZIP data (100MB) for all versions`);
     }
     
-    console.log('\n💡 Start your Electron app and it will automatically connect to this ZIP-only API server.');
-    console.log('📁 Downloaded ZIP files will be stored in: artifacts/RAW/');
-    console.log('📄 Extracted RAW files will be in: artifacts/Temp/\n');
+    console.log('\n💡 Start your Electron app and it will automatically connect to this API server.');
+    console.log('📁 Downloaded ZIP files will be extracted to: artifacts/RAW/');
+    console.log('📄 Flash logs will be received and displayed in console.\n');
 });
 
 // Graceful shutdown

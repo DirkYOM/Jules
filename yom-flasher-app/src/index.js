@@ -18,11 +18,59 @@ const fileManager = new FileManager({
     apiBaseUrl: process.env.YOM_API_URL || 'http://localhost:3001',
     maxStoredVersions: 3,
     downloadTimeout: 3600 * 1000, // 1 hour
-    preventDowngrade: true
+    preventDowngrade: true,
+    silentApiLogging: true, // Enable silent API logging
+    stationId: 'YOM-FLASH-001' // Configure your station ID
 });
 
 // Global state
 let mainWindow = null;
+
+// =============================================================================
+// YOM FIRMWARE VERSION EXTRACTION
+// =============================================================================
+
+/**
+ * Extract firmware version from YOM firmware filenames
+ * Supports: yom-node-os-P1, P_01, P_0.1.1, P10, P2.1, etc.
+ */
+function extractFirmwareVersion(imagePath) {
+    const filename = path.basename(imagePath);
+    
+    // YOM firmware patterns - looking for yom-node-os-P followed by version
+    const yomPatterns = [
+        /yom-node-os-P(\d+)/,                    // P1, P2, P10, etc.
+        /yom-node-os-P_(\d+)/,                   // P_01, P_02, etc.
+        /yom-node-os-P_(\d+\.\d+)/,             // P_0.1, P_1.5, etc.
+        /yom-node-os-P_(\d+\.\d+\.\d+)/,        // P_0.1.1, P_1.2.3, etc.
+        /yom-node-os-P(\d+\.\d+)/,              // P1.0, P2.1, etc.
+        /yom-node-os-P(\d+\.\d+\.\d+)/          // P1.0.0, P1.2.3, etc.
+    ];
+    
+    // Try YOM patterns first
+    for (const pattern of yomPatterns) {
+        const match = filename.match(pattern);
+        if (match && match[1]) {
+            return `yom-node-os-P${match[1]}`;
+        }
+    }
+    
+    // Fallback patterns for other firmware formats
+    const fallbackPatterns = [
+        /FlashingApp_(v\d+\.\d+\.\d+)/,          // FlashingApp_v1.2.3
+        /(v\d+\.\d+\.\d+)/                       // Any v1.2.3 pattern
+    ];
+    
+    for (const pattern of fallbackPatterns) {
+        const match = filename.match(pattern);
+        if (match && match[1]) {
+            return match[1];
+        }
+    }
+    
+    // Ultimate fallback - use filename without extension
+    return filename.replace(/\.(raw|img|zip)$/i, '');
+}
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
 if (require('electron-squirrel-startup')) {
@@ -206,7 +254,7 @@ app.whenReady().then(async () => {
       }
   });
 
-  // === FLASH OPERATIONS ===
+  // === ENHANCED FLASH OPERATIONS WITH SILENT API LOGGING ===
   ipcMain.handle('flash:start', async (event, imagePath, devicePath) => {
       if (!imagePath || !devicePath) {
           return { success: false, message: 'Image path or device path is missing.' };
@@ -221,12 +269,12 @@ app.whenReady().then(async () => {
               return { success: false, message: 'Could not determine image size or image is empty.' };
           }
 
-          // Extract firmware version from filename
-          const filename = path.basename(imagePath);
-          const versionMatch = filename.match(/FlashingApp_(v\d+\.\d+\.\d+)/);
-          const firmwareVersion = versionMatch ? versionMatch[1] : filename;
-
-          console.log(`Starting flash: Image=${imagePath}, Device=${devicePath}, Size=${totalSize}, Version=${firmwareVersion}`);
+          // ENHANCED: Extract firmware version using YOM pattern matching
+          const firmwareVersion = extractFirmwareVersion(imagePath);
+          
+          console.log(`Starting flash: Image=${imagePath}, Device=${devicePath}, Size=${totalSize}`);
+          console.log(`Firmware version: ${firmwareVersion} (extracted from ${path.basename(imagePath)})`);
+          
           mainWindow.setTitle('YOM Flash Tool - Flashing...');
           
           await flashImage(imagePath, devicePath, totalSize, (progressData) => {
@@ -241,12 +289,12 @@ app.whenReady().then(async () => {
           const endTime = Date.now();
           mainWindow.setTitle('YOM Flash Tool');
           
-          // Log the successful flash operation with serial number using FileManager
+          // SILENT API LOGGING: Log successful operation
           try {
               const logEntry = await fileManager.logFlashOperationWithSerial(
                   devicePath, 
                   firmwareVersion, 
-                  'success', 
+                  'success', // Status: success
                   startTime, 
                   endTime, 
                   {
@@ -255,7 +303,8 @@ app.whenReady().then(async () => {
                   }
               );
               
-              console.log('Flash operation logged:', logEntry);
+              // Silent success - no API feedback to user
+              console.log(`Flash operation logged successfully: ${firmwareVersion} -> ${logEntry.serialNumber}`);
               
               return { 
                   success: true, 
@@ -263,10 +312,11 @@ app.whenReady().then(async () => {
                   logEntry: logEntry
               };
           } catch (logError) {
-              console.warn('Failed to log flash operation:', logError);
+              // Silent failure - don't affect main operation
+              console.warn('Logging failed (silent):', logError.message);
               return { 
                   success: true, 
-                  message: 'Flashing completed successfully (logging failed).'
+                  message: 'Flashing completed successfully.'
               };
           }
           
@@ -275,16 +325,14 @@ app.whenReady().then(async () => {
           const endTime = Date.now();
           mainWindow.setTitle('YOM Flash Tool');
           
-          // Log the failed flash operation using FileManager
+          // SILENT API LOGGING: Log failed operation
           try {
-              const filename = path.basename(imagePath);
-              const versionMatch = filename.match(/FlashingApp_(v\d+\.\d+\.\d+)/);
-              const firmwareVersion = versionMatch ? versionMatch[1] : filename;
+              const firmwareVersion = extractFirmwareVersion(imagePath);
               
               await fileManager.logFlashOperationWithSerial(
                   devicePath, 
                   firmwareVersion, 
-                  'failed', 
+                  'failed', // Status: failed
                   startTime, 
                   endTime, 
                   {
@@ -292,8 +340,12 @@ app.whenReady().then(async () => {
                       imagePath: imagePath
                   }
               );
+              
+              // Silent - just log to console
+              console.log(`Failed flash operation logged: ${firmwareVersion}`);
           } catch (logError) {
-              console.warn('Failed to log flash operation:', logError);
+              // Silent failure
+              console.warn('Failed operation logging failed (silent):', logError.message);
           }
           
           return { success: false, message: error.message || 'Failed to flash image.' };
@@ -389,7 +441,7 @@ app.whenReady().then(async () => {
       }
   });
 
-  // === FIXED: DOWNLOAD HANDLER WITH PROPER EXTRACTION COMPLETION ===
+  // === ENHANCED DOWNLOAD HANDLER WITH PROPER EXTRACTION COMPLETION ===
   ipcMain.handle('update:download', async (event, version) => {
       const webContents = event.sender;
       
@@ -403,8 +455,8 @@ app.whenReady().then(async () => {
               });
           });
           
-          // FIXED: After successful download, the FileManager already extracts the firmware
-          // and places it in the RAW folder. We need to signal completion properly.
+          // After successful download, the FileManager extracts the firmware
+          // and places it in the RAW folder. Signal completion properly.
           console.log('🔄 Download and extraction completed, refreshing firmware selection...');
           
           // Small delay to ensure file system operations are complete
@@ -416,7 +468,7 @@ app.whenReady().then(async () => {
           if (updatedFirmware) {
               console.log(`✅ Auto-selected updated firmware: ${updatedFirmware.filename}`);
               
-              // FIXED: Send updated firmware info to frontend with proper completion flag
+              // Send updated firmware info to frontend with proper completion flag
               webContents.send('update:firmwareRefreshed', {
                   firmware: updatedFirmware,
                   version: version,
@@ -440,7 +492,7 @@ app.whenReady().then(async () => {
       } catch (error) {
           console.error('Download failed:', error);
           
-          // FIXED: Send failure event with extraction flag to prevent UI from hanging
+          // Send failure event with extraction flag to prevent UI from hanging
           webContents.send('update:firmwareRefreshed', {
               version: version,
               extractionComplete: false, // Set to false for actual failures
@@ -452,6 +504,7 @@ app.whenReady().then(async () => {
       }
   });
 
+  // === SIMPLIFIED LOG EXPORT (LOCAL ONLY) ===
   ipcMain.handle('update:exportLog', async (event, format) => {
       try {
           // Get log data from FileManager
@@ -521,7 +574,7 @@ app.whenReady().then(async () => {
   });
 
   console.log('✅ IPC handlers registered');
-  console.log('🚀 YOM Flash Tool ready - using enhanced linear flow with single admin setup');
+  console.log('🚀 YOM Flash Tool ready - using enhanced linear flow with silent API logging');
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
