@@ -13,7 +13,7 @@ class FileManager {
     constructor(config = {}) {
         this.config = {
             // Production API configuration
-            apiBaseUrl: config.apiBaseUrl || process.env.YOM_PRODUCTION_API || 'https://your-production-api.com',
+            apiBaseUrl: config.apiBaseUrl || process.env.YOM_PRODUCTION_API || 'https://21b7d70e91d2.ngrok-free.app/api',
             maxStoredVersions: config.maxStoredVersions || 3,
             downloadTimeout: config.downloadTimeout || 7200 * 1000, // 2 hours for large files
             tempFileMaxAge: config.tempFileMaxAge || 24 * 60 * 60 * 1000, // 24 hours
@@ -193,58 +193,51 @@ class FileManager {
         }
     }
 
-    /**
-     * Get download URL for specific firmware version
-     */
-    async getDownloadUrl(version) {
-        try {
-            console.log(`📥 Requesting download URL for version: ${version}`);
+async getDownloadUrl(version) {
+    try {
+        console.log(`📥 Requesting download URL for version: ${version}`);
+        
+        const response = await fetch(`${this.config.apiBaseUrl}/flash-images/download`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ version })
+        });
+        
+        const data = await response.json();
+        
+        if (response.status === 200) {
+            console.log(`✅ Download URL generated for ${version}`);
             
-            const response = await this.makeApiRequest('/flash-images/download', {
-                method: 'POST',
-                body: { version }
-            });
+            console.log(`📦 File size: ${this.formatFileSize(data.file_size)}`);
+            console.log(`⏰ Expires at: ${data.expires_at}`);
             
-            if (response.statusCode === 200) {
-                const downloadData = response.data;
-                
-                console.log(`✅ Download URL generated for ${version}`);
-                console.log(`📦 File size: ${this.formatFileSize(downloadData.file_size)}`);
-                console.log(`⏰ Expires at: ${downloadData.expires_at}`);
-                
-                // Cache the download URL and expiry
-                this.cachedDownloadUrl = downloadData.download_url;
-                this.downloadUrlExpiry = new Date(downloadData.expires_at);
-                
-                return {
-                    success: true,
-                    downloadUrl: downloadData.download_url,
-                    expiresAt: downloadData.expires_at,
-                    fileSize: downloadData.file_size,
-                    filename: downloadData.filename
-                };
-            } else if (response.statusCode === 404) {
-                return {
-                    success: false,
-                    error: response.data?.data?.message || 'Flash image version not found'
-                };
-            } else if (response.statusCode === 400) {
-                return {
-                    success: false,
-                    error: response.data?.data?.message || 'Version is required'
-                };
-            } else {
-                throw new Error(`API returned ${response.statusCode}`);
-            }
-        } catch (error) {
-            console.error('❌ Failed to get download URL:', error);
+            this.cachedDownloadUrl = data.download_url;
+            this.downloadUrlExpiry = new Date(data.expires_at);
+            
+            return {
+                success: true,
+                downloadUrl: data.download_url,
+                expiresAt: data.expires_at,
+                fileSize: data.file_size,
+                filename: data.filename
+            };
+        } else {
             return {
                 success: false,
-                error: error.message
+                error: data.message || `API returned ${response.status}`
             };
         }
+    } catch (error) {
+        console.log(`🔗 API URL: ${this.config.apiBaseUrl}`); // Debug line
+        console.error('❌ Failed to get download URL:', error);
+        return {
+            success: false,
+            error: error.message
+        };
     }
-
+}
     /**
      * Check if cached download URL is still valid
      */

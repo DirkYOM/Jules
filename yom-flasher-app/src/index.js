@@ -1,7 +1,4 @@
 require('dotenv').config();
-console.log('🔧 DEBUG - YOM_PRODUCTION_API:', process.env.YOM_PRODUCTION_API);
-console.log('🔧 DEBUG - Current working directory:', process.cwd());
-console.log('🔧 DEBUG - .env file exists:', require('fs').existsSync('.env'));
 
 const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('node:path');
